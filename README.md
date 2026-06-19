@@ -1,5 +1,7 @@
 # gonveyor
 
+[![CI](https://github.com/terapps/gonveyor/actions/workflows/main.yml/badge.svg)](https://github.com/terapps/gonveyor/actions/workflows/main.yml)
+
 A typed task orchestration framework for Go, built on AMQP and a relational store.
 
 Define workflows as typed DAGs. Submit them. Let the conveyor run.
