@@ -1,0 +1,18 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - unused
+    - unconvert
+    - misspell
+    - revive
+    - errcheck
+    - govet
+    - wsl_v5
+  exclusions:
+    rules:
+      - path: "examples/.*"
+        linters:
+          - unused
+          - errcheck

@@ -1,0 +1,75 @@
+name: PR
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: gonveyor
+          POSTGRES_PASSWORD: gonveyor
+          POSTGRES_DB: gonveyor
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gonveyor"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            store/bun/go.sum
+            examples/shared/go.sum
+            examples/factory/go.sum
+            examples/publisher/go.sum
+
+      - name: Run migration
+        run: psql -h localhost -U gonveyor -d gonveyor -f scripts/migrations/001_init.sql
+        env:
+          PGPASSWORD: gonveyor
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: make test-ci
+        env:
+          POSTGRES_DSN: postgres://gonveyor:gonveyor@localhost:5432/gonveyor?sslmode=disable
+
+      - name: Test report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Tests
+          path: reports/*.xml
+          reporter: java-junit
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
