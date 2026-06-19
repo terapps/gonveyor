@@ -1,6 +1,6 @@
 module github.com/terapps/gonveyor/examples/shared
 
-go 1.25.11
+go 1.24
 
 require (
 	github.com/terapps/gonveyor v0.0.0

@@ -1,6 +1,6 @@
 module github.com/terapps/gonveyor
 
-go 1.25.11
+go 1.24
 
 require github.com/rabbitmq/amqp091-go v1.12.0
 

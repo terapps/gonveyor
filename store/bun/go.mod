@@ -1,6 +1,6 @@
 module github.com/terapps/gonveyor/store/bun
 
-go 1.25.11
+go 1.24
 
 require (
 	github.com/stretchr/testify v1.11.1
