@@ -1,6 +1,7 @@
 # gonveyor
 
 [![CI](https://github.com/terapps/gonveyor/actions/workflows/main.yml/badge.svg)](https://github.com/terapps/gonveyor/actions/workflows/main.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/terapps/gonveyor.svg)](https://pkg.go.dev/github.com/terapps/gonveyor)
 
 A typed task orchestration framework for Go, built on AMQP and a relational store.
 
