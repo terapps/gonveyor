@@ -1,7 +1,7 @@
 MODULES := . store/bun examples/shared examples/factory examples/publisher
 REPORT_DIR ?= $(CURDIR)/reports
 
-.PHONY: tidy build lint test test-ci clean
+.PHONY: tidy build lint test test-ci fmt clean
 
 tidy:
 	go work use $(MODULES)
@@ -15,6 +15,9 @@ lint:
 
 test:
 	@for m in $(MODULES); do echo "→ test $$m" && (cd $$m && go test ./...); done
+
+fmt:
+	@for m in $(MODULES); do echo "→ fmt $$m" && (cd $$m && gofmt -w .); done
 
 test-ci:
 	mkdir -p $(REPORT_DIR)
