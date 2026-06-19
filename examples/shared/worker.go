@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/terapps/gonveyor"
-	"github.com/terapps/gonveyor/transport/amqp"
 	bunstore "github.com/terapps/gonveyor/store/bun"
+	"github.com/terapps/gonveyor/transport/amqp"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"

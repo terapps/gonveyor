@@ -114,9 +114,11 @@ var Inspect = blueprint.Define[InspectInput, InspectOutput]("inspect",
 	}),
 )
 
-//                 ┌──> drill_holes ───┐
+//	┌──> drill_holes ───┐
+//
 // cut_steel ──────┼──> mill_surface ──┼──> weld_assembly ──> coat_assembly ──> inspect
-//                 └──> bend_frame ────┘
+//
+//	└──> bend_frame ────┘
 var SteelFrameDAG = blueprint.New("steel_frame_dag",
 	CutSteel, DrillHoles, MillSurface, BendFrame, WeldAssembly, CoatAssembly, Inspect,
 )

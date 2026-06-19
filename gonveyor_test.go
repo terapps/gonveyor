@@ -43,12 +43,14 @@ func (m *mockStore) Next(ctx context.Context, taskID string) ([]store.Task, erro
 func (m *mockStore) GatherDepResults(ctx context.Context, taskID string) (map[string][]json.RawMessage, error) {
 	return m.gatherDepResults(ctx, taskID)
 }
-func (m *mockStore) RenewLock(_ context.Context, _ string) error                    { return nil }
+func (m *mockStore) RenewLock(_ context.Context, _ string) error                        { return nil }
 func (m *mockStore) CreateBlueprint(_ context.Context, _ store.BlueprintManifest) error { return nil }
 func (m *mockStore) GetBlueprint(_ context.Context, _ string) (store.BlueprintManifest, error) {
 	return store.BlueprintManifest{}, nil
 }
-func (m *mockStore) GetTask(_ context.Context, _ string) (store.Task, error) { return store.Task{}, nil }
+func (m *mockStore) GetTask(_ context.Context, _ string) (store.Task, error) {
+	return store.Task{}, nil
+}
 func (m *mockStore) Pending(_ context.Context, _ string) ([]store.Task, error) { return nil, nil }
 
 type mockDispatcher struct {
@@ -66,7 +68,7 @@ func (m *mockDispatcher) Close() error { return nil }
 type mockWorker struct{}
 
 func (m *mockWorker) Listen(_ context.Context, _ transport.HandlerFunc) error { return nil }
-func (m *mockWorker) Close() error                                             { return nil }
+func (m *mockWorker) Close() error                                            { return nil }
 
 // --- helpers ---
 
@@ -200,8 +202,10 @@ func TestOnComplete_SetSuccess_False_Bails(t *testing.T) {
 func TestOnComplete_SetDispatched_False_SkipsPublish(t *testing.T) {
 	var published []store.Task
 	s := &mockStore{
-		setSuccess:    func(_ context.Context, _ string, _ any) (bool, error) { return true, nil },
-		next:          func(_ context.Context, _ string) ([]store.Task, error) { return []store.Task{{Key: "b", ID: "t2"}}, nil },
+		setSuccess: func(_ context.Context, _ string, _ any) (bool, error) { return true, nil },
+		next: func(_ context.Context, _ string) ([]store.Task, error) {
+			return []store.Task{{Key: "b", ID: "t2"}}, nil
+		},
 		setDispatched: func(_ context.Context, _ string) (bool, error) { return false, nil },
 	}
 	d := &mockDispatcher{

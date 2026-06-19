@@ -6,11 +6,11 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/terapps/gonveyor/transport/amqp"
 	gonveyor "github.com/terapps/gonveyor"
 	"github.com/terapps/gonveyor/examples/factory/defs"
 	"github.com/terapps/gonveyor/examples/shared"
 	"github.com/terapps/gonveyor/store"
+	"github.com/terapps/gonveyor/transport/amqp"
 )
 
 var workflows = map[string]func() (store.BlueprintManifest, error){

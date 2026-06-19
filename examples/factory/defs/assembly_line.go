@@ -57,8 +57,9 @@ var InspectAssembly = blueprint.Define[InspectAssemblyInput, InspectAssemblyOutp
 // With Split(AssemblePart, N) at manifest time:
 //
 // drill_part ──┬──> assemble_part/0 ──┐
-//              ├──> assemble_part/1 ──┼──> inspect_assembly
-//              └──> assemble_part/N ──┘
+//
+//	├──> assemble_part/1 ──┼──> inspect_assembly
+//	└──> assemble_part/N ──┘
 var AssemblyLine = blueprint.New("assembly_line",
 	DrillPart, AssemblePart, InspectAssembly,
 )

@@ -8,8 +8,8 @@ import (
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/terapps/gonveyor"
-	"github.com/terapps/gonveyor/transport"
 	"github.com/terapps/gonveyor/store"
+	"github.com/terapps/gonveyor/transport"
 )
 
 var _ transport.Worker = (*Worker)(nil)
@@ -245,4 +245,3 @@ func (w *Worker) call(ctx context.Context, task store.Task, handler transport.Ha
 
 	return
 }
-

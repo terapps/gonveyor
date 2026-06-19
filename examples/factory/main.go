@@ -4,9 +4,9 @@ import (
 	"context"
 	"log"
 
-	"github.com/terapps/gonveyor/transport/amqp"
 	"github.com/terapps/gonveyor/examples/factory/defs"
 	"github.com/terapps/gonveyor/examples/shared"
+	"github.com/terapps/gonveyor/transport/amqp"
 )
 
 func main() {
