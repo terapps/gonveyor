@@ -1,10 +1,9 @@
 module github.com/terapps/gonveyor/examples/shared
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/terapps/gonveyor v0.0.0
-	github.com/terapps/gonveyor/store/bun v0.0.0
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18
 	github.com/uptrace/bun/driver/pgdriver v1.2.18
@@ -26,7 +25,4 @@ require (
 	mellium.im/sasl v0.3.2 // indirect
 )
 
-replace (
-	github.com/terapps/gonveyor => ../..
-	github.com/terapps/gonveyor/store/bun => ../../store/bun
-)
+replace github.com/terapps/gonveyor => ../..

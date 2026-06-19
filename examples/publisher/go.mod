@@ -1,6 +1,6 @@
 module github.com/terapps/gonveyor/examples/publisher
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/terapps/gonveyor v0.0.0
@@ -14,7 +14,6 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/rabbitmq/amqp091-go v1.12.0 // indirect
-	github.com/terapps/gonveyor/store/bun v0.0.0 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/uptrace/bun v1.2.18 // indirect
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18 // indirect
@@ -32,5 +31,4 @@ replace (
 	github.com/terapps/gonveyor => ../..
 	github.com/terapps/gonveyor/examples/factory => ../factory
 	github.com/terapps/gonveyor/examples/shared => ../shared
-	github.com/terapps/gonveyor/store/bun => ../../store/bun
 )

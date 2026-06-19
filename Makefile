@@ -1,4 +1,4 @@
-MODULES := . store/bun examples/shared examples/factory examples/publisher
+MODULES := . examples/shared examples/factory examples/publisher
 REPORT_DIR ?= $(CURDIR)/reports
 
 .PHONY: tidy build lint test test-ci fmt clean
