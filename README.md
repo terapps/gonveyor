@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/terapps/gonveyor/actions/workflows/main.yml/badge.svg)](https://github.com/terapps/gonveyor/actions/workflows/main.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/terapps/gonveyor.svg)](https://pkg.go.dev/github.com/terapps/gonveyor)
+[![Go version](https://img.shields.io/github/go-mod/go-version/terapps/gonveyor)](go.mod)
+[![Latest tag](https://img.shields.io/github/v/tag/terapps/gonveyor)](https://github.com/terapps/gonveyor/releases)
+[![License](https://img.shields.io/github/license/terapps/gonveyor)](LICENSE)
 
 A typed task orchestration framework for Go, built on AMQP and a relational store.
 
