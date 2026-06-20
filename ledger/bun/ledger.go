@@ -93,7 +93,7 @@ func (l *Ledger) CreateBlueprint(ctx context.Context, manifest ledger.BlueprintM
 					NodeID:      n.ID,
 					BlueprintID: n.BlueprintID,
 					Key:         n.Key,
-					Type:        bunevent.EventNodeDispatched,
+					Type:        ledger.EventNodeDispatched,
 				})
 				rootNodes = append(rootNodes, n)
 			}
@@ -181,7 +181,7 @@ func (l *Ledger) doRecordCompleted(ctx context.Context, nodeID string, raw json.
 				NodeID:      n.ID,
 				BlueprintID: n.BlueprintID,
 				Key:         n.Key,
-				Type:        bunevent.EventNodeDispatched,
+				Type:        ledger.EventNodeDispatched,
 			}
 		}
 		if err := l.eventRepo.Insert(ctx, events); err != nil {

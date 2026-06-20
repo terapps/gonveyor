@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+type EventType string
+
+const (
+	EventNodeDispatched EventType = "node_dispatched"
+	EventNodeStarted    EventType = "node_started"
+	EventNodeCompleted  EventType = "node_completed"
+	EventNodeFailed     EventType = "node_failed"
+	EventNodeRetried    EventType = "node_retried"
+)
+
 // Blueprint is the domain representation of a workflow instance.
 type Blueprint struct {
 	ID           string

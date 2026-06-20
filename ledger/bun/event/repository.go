@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/terapps/gonveyor/ledger"
 	"github.com/terapps/gonveyor/ledger/bun/bunutil"
 	"github.com/uptrace/bun"
 )
@@ -35,7 +36,7 @@ func (r *Repository) RecordCompleted(ctx context.Context, nodeID string, result 
 		SELECT id, blueprint_id, key, ?, ?::jsonb
 		FROM blueprint_nodes WHERE id = ?
 		ON CONFLICT (node_id, type) WHERE type = '%s' DO NOTHING
-	`, EventNodeCompleted), EventNodeCompleted, string(result), nodeID)
+	`, ledger.EventNodeCompleted), ledger.EventNodeCompleted, string(result), nodeID)
 	if err != nil {
 		return false, err
 	}
@@ -51,7 +52,7 @@ func (r *Repository) RecordStarted(ctx context.Context, nodeID string) (bool, er
 		INSERT INTO node_events (node_id, blueprint_id, key, type)
 		SELECT id, blueprint_id, key, ?
 		FROM blueprint_nodes WHERE id = ?
-	`, EventNodeStarted, nodeID)
+	`, ledger.EventNodeStarted, nodeID)
 	return err == nil, err
 }
 
@@ -60,7 +61,7 @@ func (r *Repository) RecordFailed(ctx context.Context, nodeID string, errMsg str
 		INSERT INTO node_events (node_id, blueprint_id, key, type, error)
 		SELECT id, blueprint_id, key, ?, ?
 		FROM blueprint_nodes WHERE id = ?
-	`, EventNodeFailed, errMsg, nodeID)
+	`, ledger.EventNodeFailed, errMsg, nodeID)
 	return err
 }
 
@@ -81,7 +82,7 @@ func (r *Repository) GatherDepResults(ctx context.Context, nodeID string) (map[s
 	err := bunutil.IDB(ctx, r.db).NewSelect().
 		TableExpr("blueprint_node_dependencies d").
 		ColumnExpr("e.key, e.output").
-		Join("JOIN node_events e ON e.node_id = d.depends_on_id AND e.type = ?", EventNodeCompleted).
+		Join("JOIN node_events e ON e.node_id = d.depends_on_id AND e.type = ?", ledger.EventNodeCompleted).
 		Where("d.node_id = ?", nodeID).
 		Scan(ctx, &rows)
 	if err != nil {

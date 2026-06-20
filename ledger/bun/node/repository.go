@@ -5,7 +5,6 @@ import (
 
 	"github.com/terapps/gonveyor/ledger"
 	"github.com/terapps/gonveyor/ledger/bun/bunutil"
-	bunevent "github.com/terapps/gonveyor/ledger/bun/event"
 	"github.com/uptrace/bun"
 )
 
@@ -70,7 +69,7 @@ func (r *Repository) SelectUnblocked(ctx context.Context, nodeID string) ([]ledg
 		Where("t.id IN (SELECT node_id FROM blueprint_node_dependencies WHERE depends_on_id = ?)", nodeID).
 		Where("t.pending_deps = 0").
 		Where("t.node_type = ?", NodeTypeTask).
-		Where("NOT EXISTS (SELECT 1 FROM node_events WHERE node_id = t.id AND type IN (?, ?))", bunevent.EventNodeDispatched, bunevent.EventNodeCompleted).
+		Where("NOT EXISTS (SELECT 1 FROM node_events WHERE node_id = t.id AND type IN (?, ?))", ledger.EventNodeDispatched, ledger.EventNodeCompleted).
 		For("UPDATE OF t").
 		Scan(ctx, &rows)
 	if err != nil {
@@ -94,7 +93,7 @@ func (r *Repository) FindSignalNode(ctx context.Context, blueprintID, signalKey 
 		Where("t.blueprint_id = ?", blueprintID).
 		Where("t.node_type = ?", NodeTypeSignal).
 		Where("t.key = ?", signalKey).
-		Where("NOT EXISTS (SELECT 1 FROM node_events WHERE node_id = t.id AND type = ?)", bunevent.EventNodeCompleted).
+		Where("NOT EXISTS (SELECT 1 FROM node_events WHERE node_id = t.id AND type = ?)", ledger.EventNodeCompleted).
 		Scan(ctx, &row)
 	return row.toLedger(), err
 }
