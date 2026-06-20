@@ -10,13 +10,19 @@ import (
 
 // Gonductor submits blueprints and dispatches their initial tasks.
 type Gonductor struct {
-	ledger     ledger.Ledger
-	dispatcher transport.Dispatcher
+	ledger         ledger.Ledger
+	dispatcher     transport.Dispatcher
+	eventPublisher EventPublisher
 }
 
 // NewGonductor creates a Gonductor backed by the given ledger and dispatcher.
-func NewGonductor(l ledger.Ledger, dispatcher transport.Dispatcher) *Gonductor {
-	return &Gonductor{ledger: l, dispatcher: dispatcher}
+func NewGonductor(l ledger.Ledger, dispatcher transport.Dispatcher, opts ...Option) *Gonductor {
+	o := applyOptions(opts)
+	return &Gonductor{
+		ledger:         l,
+		dispatcher:     dispatcher,
+		eventPublisher: o.eventPublisher,
+	}
 }
 
 // Launch persists a blueprint manifest and publishes its root task nodes atomically.

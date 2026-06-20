@@ -17,21 +17,24 @@ type TaskHandler func(ctx context.Context, task ledger.Node) (any, error)
 
 // Gonveyor orchestrates task execution across a distributed worker pool.
 type Gonveyor struct {
-	ledger     ledger.Ledger
-	dispatcher transport.Dispatcher
-	worker     transport.Worker
-	handlers   map[string]TaskHandler
-	blueprints map[string]*blueprint.Blueprint
+	ledger         ledger.Ledger
+	dispatcher     transport.Dispatcher
+	worker         transport.Worker
+	handlers       map[string]TaskHandler
+	blueprints     map[string]*blueprint.Blueprint
+	eventPublisher EventPublisher
 }
 
 // NewGonveyor creates a new Gonveyor with the given ledger, dispatcher and worker.
-func NewGonveyor(l ledger.Ledger, dispatcher transport.Dispatcher, worker transport.Worker) *Gonveyor {
+func NewGonveyor(l ledger.Ledger, dispatcher transport.Dispatcher, worker transport.Worker, opts ...Option) *Gonveyor {
+	o := applyOptions(opts)
 	return &Gonveyor{
-		ledger:     l,
-		dispatcher: dispatcher,
-		worker:     worker,
-		handlers:   make(map[string]TaskHandler),
-		blueprints: make(map[string]*blueprint.Blueprint),
+		ledger:         l,
+		dispatcher:     dispatcher,
+		worker:         worker,
+		handlers:       make(map[string]TaskHandler),
+		blueprints:     make(map[string]*blueprint.Blueprint),
+		eventPublisher: o.eventPublisher,
 	}
 }
 
