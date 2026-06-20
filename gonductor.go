@@ -24,6 +24,14 @@ func (c *Gonductor) Submit(ctx context.Context, manifest store.BlueprintManifest
 	return c.store.CreateBlueprint(ctx, manifest)
 }
 
+// Launch persists a blueprint manifest and dispatches its initial tasks in one call.
+func (c *Gonductor) Launch(ctx context.Context, manifest store.BlueprintManifest) error {
+	if err := c.store.CreateBlueprint(ctx, manifest); err != nil {
+		return err
+	}
+	return c.DispatchBlueprint(ctx, manifest.Blueprint.ID)
+}
+
 // DispatchBlueprint fetches all pending tasks for a blueprint and dispatches them.
 func (c *Gonductor) DispatchBlueprint(ctx context.Context, blueprintID string) error {
 	tasks, err := c.store.Pending(ctx, blueprintID)
