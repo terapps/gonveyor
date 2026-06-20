@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/terapps/gonveyor/store"
@@ -12,22 +13,40 @@ type ManifestOption interface {
 	applyManifest(cfg *manifestCfg)
 }
 
+// Seed sets the base payload for a task at manifest time.
+// Fields set by Seed are overlaid by Intake/Merge deps at dispatch time,
+// so Seed and dep-based injection can coexist on the same task.
+func Seed[I, O any](def *Station[I, O], input I) ManifestOption {
+	raw, _ := json.Marshal(input)
+	return seedOpt{key: def.Key(), payload: raw}
+}
+
+type seedOpt struct {
+	key     string
+	payload json.RawMessage
+}
+
+func (s seedOpt) applyManifest(cfg *manifestCfg) {
+	cfg.payloads[s.key] = []json.RawMessage{s.payload}
+}
+
 // Split creates n parallel instances of def in the manifest.
 func Split(def AnyDef, n int) ManifestOption {
 	return splitOpt{key: def.Key(), n: n}
 }
 
-// Manifest builds a store.BlueprintManifest from the blueprint and the given root input.
-// Use Split to fan-out specific tasks to N parallel instances.
-func (b *Blueprint) Manifest(input any, opts ...ManifestOption) (store.BlueprintManifest, error) {
-	payload, err := json.Marshal(input)
-	if err != nil {
-		return store.BlueprintManifest{}, err
-	}
-
+// Manifest builds a store.BlueprintManifest from the blueprint.
+// Use Seed to assign payloads to tasks, Split/SplitWith for fan-out.
+func (b *Blueprint) Manifest(opts ...ManifestOption) (store.BlueprintManifest, error) {
 	cfg := &manifestCfg{splits: make(map[string]int), payloads: make(map[string][]json.RawMessage)}
 	for _, opt := range opts {
 		opt.applyManifest(cfg)
+	}
+
+	for _, def := range b.tasks {
+		if len(def.depList()) == 0 && cfg.payloads[def.Key()] == nil {
+			return store.BlueprintManifest{}, fmt.Errorf("task %q has no dependencies and no Seed — use Seed() to provide its initial payload", def.Key())
+		}
 	}
 
 	blueprintID := uuid.NewString()
@@ -49,14 +68,11 @@ func (b *Blueprint) Manifest(input any, opts ...ManifestOption) (store.Blueprint
 
 	for _, def := range b.tasks {
 		myIDs := taskIDs[def.Key()]
-		isRoot := len(def.depList()) == 0
 
 		for i, id := range myIDs {
 			taskPayload := json.RawMessage(nil)
 			if perInstance := cfg.payloads[def.Key()]; perInstance != nil {
 				taskPayload = perInstance[i]
-			} else if isRoot {
-				taskPayload = payload
 			}
 
 			tasks = append(tasks, store.Task{

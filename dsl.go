@@ -38,6 +38,13 @@ func After[I any](from blueprint.AnyDef) blueprint.DepOption[I] {
 	return blueprint.After[I](from)
 }
 
+// Seed sets the base payload for a task at manifest time.
+// Fields set by Seed are overlaid by Intake/Merge deps at dispatch time,
+// so Seed and dep-based injection can coexist on the same task.
+func Seed[I, O any](def *blueprint.Station[I, O], input I) blueprint.ManifestOption {
+	return blueprint.Seed(def, input)
+}
+
 // Split creates n parallel instances of def in the manifest.
 func Split(def blueprint.AnyDef, n int) blueprint.ManifestOption {
 	return blueprint.Split(def, n)

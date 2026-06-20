@@ -15,19 +15,19 @@ import (
 
 var workflows = map[string]func() (store.BlueprintManifest, error){
 	"assembly_line": func() (store.BlueprintManifest, error) {
-		return defs.AssemblyLine.Manifest(defs.DrillInput{OrderID: "order-1", PartCode: "DR-42"})
+		return defs.AssemblyLine.Manifest(gonveyor.Seed(defs.DrillPart, defs.DrillInput{OrderID: "order-1", PartCode: "DR-42"}))
 	},
 	"assembly_line_split": func() (store.BlueprintManifest, error) {
 		return defs.AssemblyLine.Manifest(
-			defs.DrillInput{OrderID: "order-1", PartCode: "DR-42"},
+			gonveyor.Seed(defs.DrillPart, defs.DrillInput{OrderID: "order-1", PartCode: "DR-42"}),
 			gonveyor.Split(defs.AssemblePart, 3),
 		)
 	},
 	"metal_pipeline": func() (store.BlueprintManifest, error) {
-		return defs.MetalPipeline.Manifest(defs.CutBlankInput{OrderID: "order-2", MetalType: "steel"})
+		return defs.MetalPipeline.Manifest(gonveyor.Seed(defs.CutBlank, defs.CutBlankInput{OrderID: "order-2", MetalType: "steel"}))
 	},
 	"steel_frame_dag": func() (store.BlueprintManifest, error) {
-		return defs.SteelFrameDAG.Manifest(defs.CutSteelInput{OrderID: "order-3", SheetSize: "1200x800"})
+		return defs.SteelFrameDAG.Manifest(gonveyor.Seed(defs.CutSteel, defs.CutSteelInput{OrderID: "order-3", SheetSize: "1200x800"}))
 	},
 }
 

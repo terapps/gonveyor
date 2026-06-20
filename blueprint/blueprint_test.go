@@ -22,9 +22,9 @@ type in3 struct {
 }
 type out3 struct{}
 
-func mustManifest(t *testing.T, bp *blueprint.Blueprint, input any, opts ...blueprint.ManifestOption) store.BlueprintManifest {
+func mustManifest(t *testing.T, bp *blueprint.Blueprint, opts ...blueprint.ManifestOption) store.BlueprintManifest {
 	t.Helper()
-	m, err := bp.Manifest(input, opts...)
+	m, err := bp.Manifest(opts...)
 	require.NoError(t, err)
 	return m
 }
@@ -94,7 +94,7 @@ func TestManifest_RootIsInitial(t *testing.T) {
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
 	)
 	bp := blueprint.New("bp", a, b)
-	m := mustManifest(t, bp, in1{A: "hello"})
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{A: "hello"}))
 
 	pending := m.PendingTasks()
 	require.Len(t, pending, 1)
@@ -107,7 +107,7 @@ func TestManifest_DepTaskNotInitial(t *testing.T) {
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
 	)
 	bp := blueprint.New("bp", a, b)
-	m := mustManifest(t, bp, in1{})
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	ids := make(map[string]struct{})
 	for _, t := range m.PendingTasks() {
@@ -121,7 +121,7 @@ func TestManifest_DepTaskNotInitial(t *testing.T) {
 func TestManifest_RootPayload(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
 	bp := blueprint.New("bp", a)
-	m := mustManifest(t, bp, in1{A: "hello"})
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{A: "hello"}))
 
 	tasks := taskByKey(m, "a")
 	require.Len(t, tasks, 1)
@@ -137,7 +137,7 @@ func TestManifest_Split_CreatesNInstances(t *testing.T) {
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
 	)
 	bp := blueprint.New("bp", a, b)
-	m := mustManifest(t, bp, in1{}, blueprint.Split(b, 3))
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Split(b, 3))
 
 	assert.Len(t, taskByKey(m, "b"), 3)
 }
@@ -151,7 +151,7 @@ func TestManifest_Split_DownstreamWaitsAll(t *testing.T) {
 		blueprint.Merge(b, func(outs []out2, in *in3) {}),
 	)
 	bp := blueprint.New("bp", a, b, c)
-	m := mustManifest(t, bp, in1{}, blueprint.Split(b, 3))
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Split(b, 3))
 
 	cTasks := taskByKey(m, "c")
 	require.Len(t, cTasks, 1)
@@ -171,7 +171,7 @@ func TestManifest_DepWiring(t *testing.T) {
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
 	)
 	bp := blueprint.New("bp", a, b)
-	m := mustManifest(t, bp, in1{})
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	aID := taskByKey(m, "a")[0].ID
 	bID := taskByKey(m, "b")[0].ID
@@ -293,7 +293,7 @@ func TestSplitWith_CreatesNInstances(t *testing.T) {
 	bp := blueprint.New("bp", a, b)
 
 	items := []item{{"x"}, {"y"}, {"z"}}
-	m := mustManifest(t, bp, in1{}, blueprint.SplitWith(b, items, func(it item, in *in2) {
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.SplitWith(b, items, func(it item, in *in2) {
 		in.A = it.ID
 	}))
 
@@ -308,7 +308,7 @@ func TestSplitWith_PerInstancePayload(t *testing.T) {
 	bp := blueprint.New("bp", a, b)
 
 	items := []item{{"x"}, {"y"}, {"z"}}
-	m := mustManifest(t, bp, in1{}, blueprint.SplitWith(b, items, func(it item, in *in2) {
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.SplitWith(b, items, func(it item, in *in2) {
 		in.A = it.ID
 	}))
 
@@ -354,7 +354,7 @@ func TestAfter_CreatesDepEdge(t *testing.T) {
 		blueprint.After[in2](a),
 	)
 	bp := blueprint.New("bp", a, b)
-	m := mustManifest(t, bp, in1{})
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	aID := taskByKey(m, "a")[0].ID
 	bID := taskByKey(m, "b")[0].ID
@@ -374,7 +374,7 @@ func TestAfter_NotInitialTask(t *testing.T) {
 		blueprint.After[in2](a),
 	)
 	bp := blueprint.New("bp", a, b)
-	m := mustManifest(t, bp, in1{})
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	pending := m.PendingTasks()
 	require.Len(t, pending, 1)

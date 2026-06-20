@@ -18,7 +18,7 @@ Define workflows as typed DAGs. Submit them. Let the conveyor run.
 |------|------|
 | **Blueprint** | A named workflow: the DAG of task definitions |
 | **Station** | A typed task node — input type `I`, output type `O` |
-| **Manifest** | A blueprint instantiated with a concrete input — ready to persist and dispatch |
+| **Manifest** | A blueprint instantiated with concrete payloads — ready to persist and dispatch |
 | **Gonveyor** | The worker side: consumes tasks, runs handlers, dispatches next tasks |
 | **Gonductor** | The producer side: submits manifests and dispatches initial tasks |
 
@@ -65,7 +65,7 @@ Dispatch N parallel instances of a task at manifest time:
 
 ```go
 manifest, _ := SteelFrameDAG.Manifest(
-    CutSteelInput{OrderID: "order-1"},
+    gonveyor.Seed(CutSteel, CutSteelInput{OrderID: "order-1"}),
     gonveyor.Split(DrillHoles, 3),
 )
 ```
