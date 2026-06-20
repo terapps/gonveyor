@@ -265,3 +265,32 @@ func TestHandler_Race_OnlyOneWins(t *testing.T) {
 
 	assert.Equal(t, 1, handlerCalls)
 }
+
+func TestHandler_After_DoesNotCallGatherDepResults(t *testing.T) {
+	stationB := blueprint.Define[inA, outA]("b", blueprint.After[inA](stationA))
+
+	gatherCalled := false
+	s := &mockStore{
+		setRunning:  func(_ context.Context, _ string) (bool, error) { return true, nil },
+		setSuccess:  func(_ context.Context, _ string, _ any) (bool, error) { return true, nil },
+		setDispatched: func(_ context.Context, _ string) (bool, error) { return true, nil },
+		next: func(_ context.Context, _ string) ([]store.Task, error) {
+			return []store.Task{{Key: "b", ID: "t2", Payload: emptyPayload()}}, nil
+		},
+		gatherDepResults: func(_ context.Context, _ string) (map[string][]json.RawMessage, error) {
+			gatherCalled = true
+			return nil, nil
+		},
+	}
+	g := newG(s, &mockDispatcher{})
+	g.RegisterHandler(stationA, Handle(stationA, func(_ context.Context, _ inA) (outA, error) {
+		return outA{}, nil
+	}))
+	g.RegisterHandler(stationB, Handle(stationB, func(_ context.Context, _ inA) (outA, error) {
+		return outA{}, nil
+	}))
+
+	err := invokeHandler(g, store.Task{Key: "a", ID: "t1", Payload: emptyPayload()})
+	require.NoError(t, err)
+	assert.False(t, gatherCalled, "GatherDepResults should not be called for After-only deps")
+}
