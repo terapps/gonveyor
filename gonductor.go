@@ -24,6 +24,15 @@ func (c *Gonductor) Submit(ctx context.Context, manifest store.BlueprintManifest
 	return c.store.CreateBlueprint(ctx, manifest)
 }
 
+// DispatchBlueprint fetches all pending tasks for a blueprint and dispatches them.
+func (c *Gonductor) DispatchBlueprint(ctx context.Context, blueprintID string) error {
+	tasks, err := c.store.Pending(ctx, blueprintID)
+	if err != nil {
+		return err
+	}
+	return c.Dispatch(ctx, tasks)
+}
+
 // Dispatch marks tasks as dispatched and publishes them to the queue.
 func (c *Gonductor) Dispatch(ctx context.Context, tasks []store.Task) error {
 	dispatched := false
