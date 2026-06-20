@@ -35,42 +35,42 @@ import (
 )
 
 // 1. Define typed task nodes — no deps here
-var CutSteel    = blueprint.Define[CutSteelInput, CutSteelOutput]("cut_steel")
-var DrillHoles  = blueprint.Define[DrillHolesInput, DrillHolesOutput]("drill_holes")
-var MillSurface = blueprint.Define[MillSurfaceInput, MillSurfaceOutput]("mill_surface")
-var BendFrame   = blueprint.Define[BendFrameInput, BendFrameOutput]("bend_frame")
-var WeldAssembly = blueprint.Define[WeldAssemblyInput, WeldAssemblyOutput]("weld_assembly")
+var DownloadAsset  = blueprint.Define[DownloadInput, DownloadOutput]("download_asset")
+var TranscodeVideo = blueprint.Define[TranscodeInput, TranscodeOutput]("transcode_video")
+var GenerateThumb  = blueprint.Define[ThumbInput, ThumbOutput]("generate_thumb")
+var ExtractAudio   = blueprint.Define[AudioInput, AudioOutput]("extract_audio")
+var PackageBundle  = blueprint.Define[PackageInput, PackageOutput]("package_bundle")
 
 // 2. Assemble the blueprint — wiring declared here
-//                 ┌──> drill_holes ───┐
-// cut_steel ──────┼──> mill_surface ──┼──> weld_assembly ──> ...
-//                 └──> bend_frame ────┘
-var SteelFrameDAG = blueprint.New("steel_frame_dag",
-    CutSteel,
-    blueprint.Wire(DrillHoles,
-        gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *DrillHolesInput) {
-            in.SheetID = o.SheetID
+//                    ┌──> transcode_video ──┐
+// download_asset ────┼──> generate_thumb   ──┼──> package_bundle
+//                    └──> extract_audio   ──┘
+var VideoProcessing = blueprint.New("video_processing",
+    DownloadAsset,
+    blueprint.Wire(TranscodeVideo,
+        gonveyor.Intake(DownloadAsset, func(o DownloadOutput, in *TranscodeInput) {
+            in.AssetID = o.AssetID
         }),
     ),
-    blueprint.Wire(MillSurface,
-        gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *MillSurfaceInput) {
-            in.SheetID = o.SheetID
+    blueprint.Wire(GenerateThumb,
+        gonveyor.Intake(DownloadAsset, func(o DownloadOutput, in *ThumbInput) {
+            in.AssetID = o.AssetID
         }),
     ),
-    blueprint.Wire(BendFrame,
-        gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *BendFrameInput) {
-            in.SheetID = o.SheetID
+    blueprint.Wire(ExtractAudio,
+        gonveyor.Intake(DownloadAsset, func(o DownloadOutput, in *AudioInput) {
+            in.AssetID = o.AssetID
         }),
     ),
-    blueprint.Wire(WeldAssembly,
-        gonveyor.Intake(DrillHoles, func(o DrillHolesOutput, in *WeldAssemblyInput) {
-            in.HoleCount = o.HoleCount
+    blueprint.Wire(PackageBundle,
+        gonveyor.Intake(TranscodeVideo, func(o TranscodeOutput, in *PackageInput) {
+            in.VideoURL = o.URL
         }),
-        gonveyor.Intake(MillSurface, func(o MillSurfaceOutput, in *WeldAssemblyInput) {
-            in.Roughness = o.Roughness
+        gonveyor.Intake(GenerateThumb, func(o ThumbOutput, in *PackageInput) {
+            in.ThumbURL = o.URL
         }),
-        gonveyor.Intake(BendFrame, func(o BendFrameOutput, in *WeldAssemblyInput) {
-            in.FrameID = o.FrameID
+        gonveyor.Intake(ExtractAudio, func(o AudioOutput, in *PackageInput) {
+            in.AudioURL = o.URL
         }),
     ),
 )
@@ -83,29 +83,31 @@ Root nodes (no deps) are passed bare. `Wire` is only needed when declaring depen
 Because wiring lives in `blueprint.New`, the same station can appear in multiple blueprints with different deps:
 
 ```go
-var SendEmail = blueprint.Define[SendEmailInput, SendEmailOutput]("send_email")
+var Notify = blueprint.Define[NotifyInput, NotifyOutput]("notify")
 
-var QuotationFlow = blueprint.New("quotation_flow",
-    // ...
-    blueprint.Wire(SendEmail,
-        gonveyor.Intake(CreateContract, func(o CreateContractOutput, in *SendEmailInput) {
-            in.Template = "contract_created"
-            in.ContractID = o.ContractID
+// Order confirmed — notify after payment clears
+var OrderFlow = blueprint.New("order_flow",
+    PlaceOrder, ChargePayment,
+    blueprint.Wire(Notify,
+        gonveyor.Intake(ChargePayment, func(o ChargeOutput, in *NotifyInput) {
+            in.Template = "order_confirmed"
+            in.UserID   = o.UserID
         }),
     ),
 )
 
-var ImpayeFlow = blueprint.New("impaye_flow",
-    ContractImpaye,
-    blueprint.Wire(SendEmail,
-        gonveyor.After[SendEmailInput](ContractImpaye),
+// Refund processed — notify when refund is done, no data needed
+var RefundFlow = blueprint.New("refund_flow",
+    ProcessRefund,
+    blueprint.Wire(Notify,
+        gonveyor.After[NotifyInput](ProcessRefund),
     ),
 )
 
 // One handler for both flows
-g.RegisterBlueprint(QuotationFlow)
-g.RegisterBlueprint(ImpayeFlow)
-g.RegisterHandler(SendEmail, gonveyor.Handle(SendEmail, sendEmailHandler))
+g.RegisterBlueprint(OrderFlow)
+g.RegisterBlueprint(RefundFlow)
+g.RegisterHandler(Notify, gonveyor.Handle(Notify, notifyHandler))
 ```
 
 ### Fan-out with `Split`
@@ -113,16 +115,16 @@ g.RegisterHandler(SendEmail, gonveyor.Handle(SendEmail, sendEmailHandler))
 Dispatch N parallel instances of a task at manifest time:
 
 ```go
-manifest, _ := SteelFrameDAG.Manifest(
-    gonveyor.Seed(CutSteel, CutSteelInput{OrderID: "order-1"}),
-    gonveyor.Split(DrillHoles, 3),
+manifest, _ := VideoProcessing.Manifest(
+    gonveyor.Seed(DownloadAsset, DownloadInput{AssetID: "asset-1"}),
+    gonveyor.Split(TranscodeVideo, 3), // transcode at 1080p, 720p, 480p in parallel
 )
 ```
 
 ```
-cut_steel ──┬──> drill_holes/0 ──┐
-            ├──> drill_holes/1 ──┼──> weld_assembly
-            └──> drill_holes/2 ──┘
+download_asset ──┬──> transcode_video/0 ──┐
+                 ├──> transcode_video/1 ──┼──> package_bundle
+                 └──> transcode_video/2 ──┘
 ```
 
 Downstream tasks wait for **all** split instances before unblocking.
@@ -132,28 +134,29 @@ Downstream tasks wait for **all** split instances before unblocking.
 When N is only known at runtime and each instance needs distinct input data:
 
 ```go
-files, _ := repo.ListFiles(ctx, gameVersionID)
+tracks, _ := repo.ListTracks(ctx, albumID)
 
 manifest, _ := bp.Manifest(
-    gonveyor.Seed(ListFiles, ListFilesInput{GameVersionID: gameVersionID}),
-    gonveyor.SplitWith(ProcessFile, files, func(f FileRef, in *ProcessInput) {
-        in.FileID = f.ID
+    gonveyor.Seed(FetchAlbum, FetchAlbumInput{AlbumID: albumID}),
+    gonveyor.SplitWith(EncodeTrack, tracks, func(t Track, in *EncodeInput) {
+        in.TrackID = t.ID
+        in.Format  = t.Format
     }),
 )
 ```
 
-N is `len(files)`. Each instance is seeded with its own payload at manifest creation. If `ProcessFile` also has `Intake` deps, their results are merged on top of the seed at dispatch time.
+N is `len(tracks)`. Each instance is seeded with its own payload at manifest creation. If `EncodeTrack` also has `Intake` deps, their results are merged on top of the seed at dispatch time.
 
 ### Fan-in with `Merge`
 
 When a downstream task needs to collect N outputs into a slice:
 
 ```go
-blueprint.Wire(Inspect,
-    gonveyor.Merge(DrillHoles, func(outputs []DrillHolesOutput, in *InspectInput) {
-        ids := make([]string, len(outputs))
-        for i, o := range outputs { ids[i] = o.HoleID }
-        in.HoleIDs = ids
+blueprint.Wire(PublishRelease,
+    gonveyor.Merge(EncodeTrack, func(outputs []EncodeOutput, in *PublishInput) {
+        urls := make([]string, len(outputs))
+        for i, o := range outputs { urls[i] = o.URL }
+        in.TrackURLs = urls
     }),
 )
 ```
@@ -169,8 +172,8 @@ Every root task (no deps) must be explicitly seeded at manifest time. `Seed` als
 
 ```go
 manifest, _ := bp.Manifest(
-    gonveyor.Seed(ListFiles, ListFilesInput{GameVersionID: "v1"}),
-    gonveyor.Seed(ProcessFile, ProcessFileInput{GameVersionID: "v1"}),
+    gonveyor.Seed(DownloadAsset, DownloadInput{AssetID: "asset-1"}),
+    gonveyor.Seed(PackageBundle, PackageInput{ReleaseID: "rel-42"}),
 )
 ```
 
@@ -182,8 +185,8 @@ When a task must run after another but doesn't need its output:
 
 ```go
 blueprint.Wire(Cleanup,
-    gonveyor.After[CleanupInput](WeldAssembly),
-    gonveyor.After[CleanupInput](Inspect),
+    gonveyor.After[CleanupInput](TranscodeVideo),
+    gonveyor.After[CleanupInput](ExtractAudio),
 )
 ```
 
@@ -205,11 +208,12 @@ worker, _ := conn.NewWorker(queue)
 g := gonveyor.NewGonveyor(bunstore.New(db), dispatcher, worker)
 
 // Register blueprint wiring so the worker knows how to build task inputs
-g.RegisterBlueprint(SteelFrameDAG)
+g.RegisterBlueprint(VideoProcessing)
 
-g.RegisterHandler(DrillHoles, gonveyor.Handle(DrillHoles,
-    func(ctx context.Context, in DrillHolesInput) (DrillHolesOutput, error) {
-        return DrillHolesOutput{SheetID: in.SheetID, HoleCount: 4}, nil
+g.RegisterHandler(TranscodeVideo, gonveyor.Handle(TranscodeVideo,
+    func(ctx context.Context, in TranscodeInput) (TranscodeOutput, error) {
+        url, err := transcoder.Run(ctx, in.AssetID)
+        return TranscodeOutput{URL: url}, err
     },
 ))
 
@@ -240,8 +244,8 @@ dispatcher, _ := conn.NewDispatcher(queue)
 
 gc := gonveyor.NewGonductor(bunstore.New(db), dispatcher)
 
-manifest, _ := SteelFrameDAG.Manifest(
-    gonveyor.Seed(CutSteel, CutSteelInput{OrderID: "order-42", SheetSize: "1200x800"}),
+manifest, _ := VideoProcessing.Manifest(
+    gonveyor.Seed(DownloadAsset, DownloadInput{AssetID: "asset-42", SourceURL: "s3://..."}),
 )
 
 gc.Launch(ctx, manifest)
