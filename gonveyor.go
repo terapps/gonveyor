@@ -18,7 +18,7 @@ type Gonveyor struct {
 	dispatcher transport.Dispatcher
 	worker     transport.Worker
 	handlers   map[string]transport.HandlerFunc
-	defs       map[string]blueprint.AnyDef
+	blueprints map[string]*blueprint.Blueprint
 }
 
 // NewGonveyor creates a new Gonveyor with the given store, dispatcher and worker.
@@ -28,13 +28,18 @@ func NewGonveyor(store store.Store, dispatcher transport.Dispatcher, worker tran
 		dispatcher: dispatcher,
 		worker:     worker,
 		handlers:   make(map[string]transport.HandlerFunc),
-		defs:       make(map[string]blueprint.AnyDef),
+		blueprints: make(map[string]*blueprint.Blueprint),
 	}
 }
 
-// RegisterHandler registers a typed task definition and its handler.
+// RegisterBlueprint registers the wiring for a blueprint so the orchestrator
+// knows how to build each task's input from upstream outputs.
+func (o *Gonveyor) RegisterBlueprint(bp *blueprint.Blueprint) {
+	o.blueprints[bp.Name()] = bp
+}
+
+// RegisterHandler registers a handler for a task key.
 func (o *Gonveyor) RegisterHandler(def blueprint.AnyDef, fn transport.HandlerFunc) {
-	o.defs[def.Key()] = def
 	o.handlers[def.Key()] = fn
 }
 
@@ -72,18 +77,20 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 			continue
 		}
 
-		if def, ok := o.defs[t.Key]; ok {
-			var outputs map[string][]json.RawMessage
-			if def.NeedsDepData() {
-				outputs, err = o.store.GatherDepResults(ctx, t.ID)
+		if bp, ok := o.blueprints[t.BlueprintName]; ok {
+			if node := bp.Node(t.Key); node != nil {
+				var outputs map[string][]json.RawMessage
+				if node.NeedsDepData() {
+					outputs, err = o.store.GatherDepResults(ctx, t.ID)
+					if err != nil {
+						return err
+					}
+				}
+
+				t.Payload, err = node.BuildInput(t.Payload, outputs)
 				if err != nil {
 					return err
 				}
-			}
-
-			t.Payload, err = def.BuildInput(t.Payload, outputs)
-			if err != nil {
-				return err
 			}
 		}
 

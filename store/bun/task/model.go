@@ -15,7 +15,8 @@ type Task struct {
 	CreatedAt time.Time `bun:"created_at,notnull,default:now()"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:now()"`
 
-	BlueprintID string           `bun:"blueprint_id,notnull"`
+	BlueprintID   string           `bun:"blueprint_id,notnull"`
+	BlueprintName string           `bun:"blueprint_name,notnull"`
 	Key         string           `bun:"key,notnull"`
 	Status      store.TaskStatus `bun:"status,notnull"`
 	Error       []byte           `bun:"error,type:text"`
@@ -33,12 +34,13 @@ type Dependency struct {
 
 func (t Task) ToStore() store.Task {
 	return store.Task{
-		ID:          t.ID,
-		BlueprintID: t.BlueprintID,
-		Key:         t.Key,
-		Status:      t.Status,
-		Payload:     t.Payload,
-		Result:      t.Result,
-		Error:       string(t.Error),
+		ID:            t.ID,
+		BlueprintID:   t.BlueprintID,
+		BlueprintName: t.BlueprintName,
+		Key:           t.Key,
+		Status:        t.Status,
+		Payload:       t.Payload,
+		Result:        t.Result,
+		Error:         string(t.Error),
 	}
 }

@@ -38,6 +38,12 @@ func After[I any](from blueprint.AnyDef) blueprint.DepOption[I] {
 	return blueprint.After[I](from)
 }
 
+// Wire creates a wired node — a Station with its blueprint-specific dependency declarations.
+// Use inside Blueprint.New to declare how this task's input is built from upstream outputs.
+func Wire[I, O any](def *blueprint.Station[I, O], deps ...blueprint.DepOption[I]) blueprint.AnyWiredNode {
+	return blueprint.Wire(def, deps...)
+}
+
 // Seed sets the base payload for a task at manifest time.
 // Fields set by Seed are overlaid by Intake/Merge deps at dispatch time,
 // so Seed and dep-based injection can coexist on the same task.

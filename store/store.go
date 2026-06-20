@@ -30,13 +30,14 @@ type Blueprint struct {
 
 // Task is the domain representation of a single unit of work within a blueprint.
 type Task struct {
-	ID          string
-	BlueprintID string
-	Key         string
-	Status      TaskStatus
-	Payload     []byte
-	Result      []byte
-	Error       string
+	ID            string
+	BlueprintID   string
+	BlueprintName string
+	Key           string
+	Status        TaskStatus
+	Payload       []byte
+	Result        []byte
+	Error         string
 }
 
 // TaskDependency records that a task must complete before another can start.

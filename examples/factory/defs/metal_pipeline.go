@@ -35,19 +35,21 @@ type CoatBlankOutput struct {
 }
 
 var CutBlank = blueprint.Define[CutBlankInput, CutBlankOutput]("cut_blank")
-
-var DrillBlank = blueprint.Define[DrillBlankInput, DrillBlankOutput]("drill_blank",
-	gonveyor.Intake(CutBlank, func(o CutBlankOutput, in *DrillBlankInput) {
-		in.BlankID = o.BlankID
-		in.Dimensions = o.Dimensions
-	}),
-)
-
-var CoatBlank = blueprint.Define[CoatBlankInput, CoatBlankOutput]("coat_blank",
-	gonveyor.Intake(DrillBlank, func(o DrillBlankOutput, in *CoatBlankInput) {
-		in.BlankID = o.BlankID
-	}),
-)
+var DrillBlank = blueprint.Define[DrillBlankInput, DrillBlankOutput]("drill_blank")
+var CoatBlank = blueprint.Define[CoatBlankInput, CoatBlankOutput]("coat_blank")
 
 // cut_blank ──> drill_blank ──> coat_blank
-var MetalPipeline = blueprint.New("metal_pipeline", CutBlank, DrillBlank, CoatBlank)
+var MetalPipeline = blueprint.New("metal_pipeline",
+	CutBlank,
+	blueprint.Wire(DrillBlank,
+		gonveyor.Intake(CutBlank, func(o CutBlankOutput, in *DrillBlankInput) {
+			in.BlankID = o.BlankID
+			in.Dimensions = o.Dimensions
+		}),
+	),
+	blueprint.Wire(CoatBlank,
+		gonveyor.Intake(DrillBlank, func(o DrillBlankOutput, in *CoatBlankInput) {
+			in.BlankID = o.BlankID
+		}),
+	),
+)

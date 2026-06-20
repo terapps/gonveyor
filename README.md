@@ -78,6 +78,19 @@ cut_steel ──┬──> drill_holes/0 ──┐
 
 Downstream tasks wait for **all** split instances before unblocking.
 
+### Seeding a task with `Seed`
+
+Every task without dependencies must be explicitly seeded at manifest time. `Seed` also works on any task that needs ambient context (e.g. a workflow-level ID) that doesn't flow naturally through the dep graph:
+
+```go
+manifest, _ := bp.Manifest(
+    gonveyor.Seed(ListFiles, ListFilesInput{GameVersionID: "v1"}),
+    gonveyor.Seed(ProcessFile, ProcessFileInput{GameVersionID: "v1"}),
+)
+```
+
+If `ProcessFile` also has `Intake` deps, their fields are merged on top of the seed at dispatch time — `Seed` and dep-based injection coexist on the same task. `Manifest` returns an error if any root task is missing a `Seed`.
+
 ### Fan-out with `SplitWith`
 
 When N is only known at runtime and each instance needs distinct input data:
@@ -85,7 +98,8 @@ When N is only known at runtime and each instance needs distinct input data:
 ```go
 files, _ := repo.ListFiles(ctx, gameVersionID)
 
-manifest, _ := bp.Manifest(input,
+manifest, _ := bp.Manifest(
+    gonveyor.Seed(ListFiles, ListFilesInput{GameVersionID: gameVersionID}),
     gonveyor.SplitWith(ProcessFile, files, func(f FileRef, in *ProcessInput) {
         in.FileID = f.ID
     }),
@@ -174,10 +188,9 @@ dispatcher, _ := conn.NewDispatcher(queue)
 
 gc := gonveyor.NewGonductor(bunstore.New(db), dispatcher)
 
-manifest, _ := SteelFrameDAG.Manifest(CutSteelInput{
-    OrderID:   "order-42",
-    SheetSize: "1200x800",
-})
+manifest, _ := SteelFrameDAG.Manifest(
+    gonveyor.Seed(CutSteel, CutSteelInput{OrderID: "order-42", SheetSize: "1200x800"}),
+)
 
 gc.Launch(ctx, manifest)
 ```

@@ -76,11 +76,12 @@ func (b *Blueprint) Manifest(opts ...ManifestOption) (store.BlueprintManifest, e
 			}
 
 			tasks = append(tasks, store.Task{
-				ID:          id,
-				BlueprintID: blueprintID,
-				Key:         def.Key(),
-				Status:      store.TaskStatusPending,
-				Payload:     taskPayload,
+				ID:            id,
+				BlueprintID:   blueprintID,
+				BlueprintName: b.name,
+				Key:           def.Key(),
+				Status:        store.TaskStatusPending,
+				Payload:       taskPayload,
 			})
 		}
 

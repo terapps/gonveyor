@@ -21,6 +21,10 @@ func main() {
 	}
 	defer cleanup()
 
+	g.RegisterBlueprint(defs.AssemblyLine)
+	g.RegisterBlueprint(defs.MetalPipeline)
+	g.RegisterBlueprint(defs.SteelFrameDAG)
+
 	g.RegisterHandler(defs.DrillPart, shared.DebugHandler())
 	g.RegisterHandler(defs.AssemblePart, shared.DebugHandler())
 	g.RegisterHandler(defs.InspectAssembly, shared.DebugHandler())

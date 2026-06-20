@@ -32,25 +32,8 @@ type InspectAssemblyOutput struct {
 }
 
 var DrillPart = blueprint.Define[DrillInput, DrillOutput]("drill_part")
-
-var AssemblePart = blueprint.Define[AssembleInput, AssembleOutput]("assemble_part",
-	gonveyor.Intake(DrillPart, func(o DrillOutput, in *AssembleInput) {
-		in.PartID = o.PartID
-	}),
-)
-
-var InspectAssembly = blueprint.Define[InspectAssemblyInput, InspectAssemblyOutput]("inspect_assembly",
-	gonveyor.Intake(DrillPart, func(o DrillOutput, in *InspectAssemblyInput) {
-		in.PartID = o.PartID
-	}),
-	gonveyor.Merge(AssemblePart, func(outputs []AssembleOutput, in *InspectAssemblyInput) {
-		ids := make([]string, len(outputs))
-		for i, o := range outputs {
-			ids[i] = o.SubAssemblyID
-		}
-		in.SubAssemblyIDs = ids
-	}),
-)
+var AssemblePart = blueprint.Define[AssembleInput, AssembleOutput]("assemble_part")
+var InspectAssembly = blueprint.Define[InspectAssemblyInput, InspectAssemblyOutput]("inspect_assembly")
 
 // drill_part ──> assemble_part ──> inspect_assembly
 //
@@ -61,5 +44,22 @@ var InspectAssembly = blueprint.Define[InspectAssemblyInput, InspectAssemblyOutp
 //	├──> assemble_part/1 ──┼──> inspect_assembly
 //	└──> assemble_part/N ──┘
 var AssemblyLine = blueprint.New("assembly_line",
-	DrillPart, AssemblePart, InspectAssembly,
+	DrillPart,
+	blueprint.Wire(AssemblePart,
+		gonveyor.Intake(DrillPart, func(o DrillOutput, in *AssembleInput) {
+			in.PartID = o.PartID
+		}),
+	),
+	blueprint.Wire(InspectAssembly,
+		gonveyor.Intake(DrillPart, func(o DrillOutput, in *InspectAssemblyInput) {
+			in.PartID = o.PartID
+		}),
+		gonveyor.Merge(AssemblePart, func(outputs []AssembleOutput, in *InspectAssemblyInput) {
+			ids := make([]string, len(outputs))
+			for i, o := range outputs {
+				ids[i] = o.SubAssemblyID
+			}
+			in.SubAssemblyIDs = ids
+		}),
+	),
 )

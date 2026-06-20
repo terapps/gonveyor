@@ -40,11 +40,12 @@ func (s *Store) CreateBlueprint(ctx context.Context, manifest store.BlueprintMan
 		tasks := make([]*buntask.Task, len(manifest.Tasks))
 		for i, t := range manifest.Tasks {
 			tasks[i] = &buntask.Task{
-				ID:          t.ID,
-				BlueprintID: t.BlueprintID,
-				Key:         t.Key,
-				Status:      t.Status,
-				Payload:     t.Payload,
+				ID:            t.ID,
+				BlueprintID:   t.BlueprintID,
+				BlueprintName: t.BlueprintName,
+				Key:           t.Key,
+				Status:        t.Status,
+				Payload:       t.Payload,
 			}
 		}
 		if err := s.taskRepo.Insert(ctx, tasks); err != nil {
@@ -106,15 +107,7 @@ func (s *Store) GetTask(ctx context.Context, taskID string) (store.Task, error) 
 	if err != nil {
 		return store.Task{}, err
 	}
-	return store.Task{
-		ID:          m.ID,
-		BlueprintID: m.BlueprintID,
-		Key:         m.Key,
-		Status:      m.Status,
-		Payload:     m.Payload,
-		Result:      m.Result,
-		Error:       string(m.Error),
-	}, nil
+	return m.ToStore(), nil
 }
 
 func (s *Store) SetDispatched(ctx context.Context, taskID string) (bool, error) {

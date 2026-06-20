@@ -70,49 +70,12 @@ type InspectOutput struct {
 }
 
 var CutSteel = blueprint.Define[CutSteelInput, CutSteelOutput]("cut_steel")
-
-var DrillHoles = blueprint.Define[DrillHolesInput, DrillHolesOutput]("drill_holes",
-	gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *DrillHolesInput) {
-		in.SheetID = o.SheetID
-	}),
-)
-
-var MillSurface = blueprint.Define[MillSurfaceInput, MillSurfaceOutput]("mill_surface",
-	gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *MillSurfaceInput) {
-		in.SheetID = o.SheetID
-	}),
-)
-
-var BendFrame = blueprint.Define[BendFrameInput, BendFrameOutput]("bend_frame",
-	gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *BendFrameInput) {
-		in.SheetID = o.SheetID
-	}),
-)
-
-var WeldAssembly = blueprint.Define[WeldAssemblyInput, WeldAssemblyOutput]("weld_assembly",
-	gonveyor.Intake(DrillHoles, func(o DrillHolesOutput, in *WeldAssemblyInput) {
-		in.SheetID = o.SheetID
-		in.HoleCount = o.HoleCount
-	}),
-	gonveyor.Intake(MillSurface, func(o MillSurfaceOutput, in *WeldAssemblyInput) {
-		in.Roughness = o.Roughness
-	}),
-	gonveyor.Intake(BendFrame, func(o BendFrameOutput, in *WeldAssemblyInput) {
-		in.FrameID = o.FrameID
-	}),
-)
-
-var CoatAssembly = blueprint.Define[CoatAssemblyInput, CoatAssemblyOutput]("coat_assembly",
-	gonveyor.Intake(WeldAssembly, func(o WeldAssemblyOutput, in *CoatAssemblyInput) {
-		in.AssemblyID = o.AssemblyID
-	}),
-)
-
-var Inspect = blueprint.Define[InspectInput, InspectOutput]("inspect",
-	gonveyor.Intake(CoatAssembly, func(o CoatAssemblyOutput, in *InspectInput) {
-		in.AssemblyID = o.AssemblyID
-	}),
-)
+var DrillHoles = blueprint.Define[DrillHolesInput, DrillHolesOutput]("drill_holes")
+var MillSurface = blueprint.Define[MillSurfaceInput, MillSurfaceOutput]("mill_surface")
+var BendFrame = blueprint.Define[BendFrameInput, BendFrameOutput]("bend_frame")
+var WeldAssembly = blueprint.Define[WeldAssemblyInput, WeldAssemblyOutput]("weld_assembly")
+var CoatAssembly = blueprint.Define[CoatAssemblyInput, CoatAssemblyOutput]("coat_assembly")
+var Inspect = blueprint.Define[InspectInput, InspectOutput]("inspect")
 
 //	┌──> drill_holes ───┐
 //
@@ -120,5 +83,42 @@ var Inspect = blueprint.Define[InspectInput, InspectOutput]("inspect",
 //
 //	└──> bend_frame ────┘
 var SteelFrameDAG = blueprint.New("steel_frame_dag",
-	CutSteel, DrillHoles, MillSurface, BendFrame, WeldAssembly, CoatAssembly, Inspect,
+	CutSteel,
+	blueprint.Wire(DrillHoles,
+		gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *DrillHolesInput) {
+			in.SheetID = o.SheetID
+		}),
+	),
+	blueprint.Wire(MillSurface,
+		gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *MillSurfaceInput) {
+			in.SheetID = o.SheetID
+		}),
+	),
+	blueprint.Wire(BendFrame,
+		gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *BendFrameInput) {
+			in.SheetID = o.SheetID
+		}),
+	),
+	blueprint.Wire(WeldAssembly,
+		gonveyor.Intake(DrillHoles, func(o DrillHolesOutput, in *WeldAssemblyInput) {
+			in.SheetID = o.SheetID
+			in.HoleCount = o.HoleCount
+		}),
+		gonveyor.Intake(MillSurface, func(o MillSurfaceOutput, in *WeldAssemblyInput) {
+			in.Roughness = o.Roughness
+		}),
+		gonveyor.Intake(BendFrame, func(o BendFrameOutput, in *WeldAssemblyInput) {
+			in.FrameID = o.FrameID
+		}),
+	),
+	blueprint.Wire(CoatAssembly,
+		gonveyor.Intake(WeldAssembly, func(o WeldAssemblyOutput, in *CoatAssemblyInput) {
+			in.AssemblyID = o.AssemblyID
+		}),
+	),
+	blueprint.Wire(Inspect,
+		gonveyor.Intake(CoatAssembly, func(o CoatAssemblyOutput, in *InspectInput) {
+			in.AssemblyID = o.AssemblyID
+		}),
+	),
 )

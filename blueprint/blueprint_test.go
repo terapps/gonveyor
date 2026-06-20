@@ -50,39 +50,38 @@ func TestNew_Valid(t *testing.T) {
 
 func TestNew_MissingDep(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
+	b := blueprint.Define[in2, out2]("b")
 	assert.Panics(t, func() {
-		blueprint.New("bp", b) // a manquant
+		blueprint.New("bp", blueprint.Wire(b,
+			blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
+		)) // a manquant
 	})
 }
 
 func TestNew_Linear(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
-
+	b := blueprint.Define[in2, out2]("b")
 	assert.NotPanics(t, func() {
-		blueprint.New("bp", a, b)
+		blueprint.New("bp", a, blueprint.Wire(b,
+			blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
+		))
 	})
 }
 
 func TestNew_Diamond(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
-	c := blueprint.Define[in2, out2]("c",
-		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
-	d := blueprint.Define[in3, out3]("d",
-		blueprint.Intake(b, func(o out2, in *in3) {}),
-		blueprint.Intake(c, func(o out2, in *in3) {}),
-	)
+	b := blueprint.Define[in2, out2]("b")
+	c := blueprint.Define[in2, out2]("c")
+	d := blueprint.Define[in3, out3]("d")
 	assert.NotPanics(t, func() {
-		blueprint.New("bp", a, b, c, d)
+		blueprint.New("bp", a,
+			blueprint.Wire(b, blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A })),
+			blueprint.Wire(c, blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A })),
+			blueprint.Wire(d,
+				blueprint.Intake(b, func(o out2, in *in3) {}),
+				blueprint.Intake(c, func(o out2, in *in3) {}),
+			),
+		)
 	})
 }
 
@@ -90,10 +89,10 @@ func TestNew_Diamond(t *testing.T) {
 
 func TestManifest_RootIsInitial(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
+	b := blueprint.Define[in2, out2]("b")
+	bp := blueprint.New("bp", a, blueprint.Wire(b,
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
-	bp := blueprint.New("bp", a, b)
+	))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{A: "hello"}))
 
 	pending := m.PendingTasks()
@@ -103,10 +102,10 @@ func TestManifest_RootIsInitial(t *testing.T) {
 
 func TestManifest_DepTaskNotInitial(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
+	b := blueprint.Define[in2, out2]("b")
+	bp := blueprint.New("bp", a, blueprint.Wire(b,
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
-	bp := blueprint.New("bp", a, b)
+	))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	ids := make(map[string]struct{})
@@ -131,12 +130,22 @@ func TestManifest_RootPayload(t *testing.T) {
 	assert.Equal(t, "hello", got.A)
 }
 
+func TestManifest_BlueprintName(t *testing.T) {
+	a := blueprint.Define[in1, out1]("a")
+	bp := blueprint.New("my_bp", a)
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
+
+	for _, task := range m.Tasks {
+		assert.Equal(t, "my_bp", task.BlueprintName)
+	}
+}
+
 func TestManifest_Split_CreatesNInstances(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
+	b := blueprint.Define[in2, out2]("b")
+	bp := blueprint.New("bp", a, blueprint.Wire(b,
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
-	bp := blueprint.New("bp", a, b)
+	))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Split(b, 3))
 
 	assert.Len(t, taskByKey(m, "b"), 3)
@@ -144,13 +153,12 @@ func TestManifest_Split_CreatesNInstances(t *testing.T) {
 
 func TestManifest_Split_DownstreamWaitsAll(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
+	b := blueprint.Define[in2, out2]("b")
+	c := blueprint.Define[in3, out3]("c")
+	bp := blueprint.New("bp", a,
+		blueprint.Wire(b, blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A })),
+		blueprint.Wire(c, blueprint.Merge(b, func(outs []out2, in *in3) {})),
 	)
-	c := blueprint.Define[in3, out3]("c",
-		blueprint.Merge(b, func(outs []out2, in *in3) {}),
-	)
-	bp := blueprint.New("bp", a, b, c)
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Split(b, 3))
 
 	cTasks := taskByKey(m, "c")
@@ -167,10 +175,10 @@ func TestManifest_Split_DownstreamWaitsAll(t *testing.T) {
 
 func TestManifest_DepWiring(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
+	b := blueprint.Define[in2, out2]("b")
+	bp := blueprint.New("bp", a, blueprint.Wire(b,
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
-	bp := blueprint.New("bp", a, b)
+	))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	aID := taskByKey(m, "a")[0].ID
@@ -189,14 +197,13 @@ func TestManifest_DepWiring(t *testing.T) {
 
 func TestBuildInput_Intake_SingleDep(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
+	b := blueprint.Define[in2, out2]("b")
+	wb := blueprint.Wire(b, blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }))
 
 	raw, err := json.Marshal(out1{A: "hello"})
 	require.NoError(t, err)
 
-	result, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {raw}})
+	result, err := wb.BuildInput(nil, map[string][]json.RawMessage{"a": {raw}})
 	require.NoError(t, err)
 
 	var got in2
@@ -209,14 +216,13 @@ func TestBuildInput_Intake_ZeroValue(t *testing.T) {
 	type outBool struct{ Active bool }
 
 	a := blueprint.Define[inBool, outBool]("a")
-	b := blueprint.Define[inBool, struct{}]("b",
-		blueprint.Intake(a, func(o outBool, in *inBool) { in.Active = o.Active }),
-	)
+	b := blueprint.Define[inBool, struct{}]("b")
+	wb := blueprint.Wire(b, blueprint.Intake(a, func(o outBool, in *inBool) { in.Active = o.Active }))
 
 	raw, err := json.Marshal(outBool{Active: false})
 	require.NoError(t, err)
 
-	result, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {raw}})
+	result, err := wb.BuildInput(nil, map[string][]json.RawMessage{"a": {raw}})
 	require.NoError(t, err)
 
 	var got inBool
@@ -226,10 +232,9 @@ func TestBuildInput_Intake_ZeroValue(t *testing.T) {
 
 func TestBuildInput_Intake_MultiDep_DisjointFields(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.Intake(a, func(o out1, in *in2) {}),
-	)
-	c := blueprint.Define[in3, out3]("c",
+	b := blueprint.Define[in2, out2]("b")
+	c := blueprint.Define[in3, out3]("c")
+	wc := blueprint.Wire(c,
 		blueprint.Intake(a, func(o out1, in *in3) { in.A = o.A }),
 		blueprint.Intake(b, func(o out2, in *in3) { in.B = "from_b" }),
 	)
@@ -237,7 +242,7 @@ func TestBuildInput_Intake_MultiDep_DisjointFields(t *testing.T) {
 	rawA, _ := json.Marshal(out1{A: "val_a"})
 	rawB, _ := json.Marshal(out2{})
 
-	result, err := c.BuildInput(nil, map[string][]json.RawMessage{"a": {rawA}, "b": {rawB}})
+	result, err := wc.BuildInput(nil, map[string][]json.RawMessage{"a": {rawA}, "b": {rawB}})
 	require.NoError(t, err)
 
 	var got in3
@@ -248,12 +253,11 @@ func TestBuildInput_Intake_MultiDep_DisjointFields(t *testing.T) {
 
 func TestBuildInput_Intake_MultipleOutputs_Error(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-	)
+	b := blueprint.Define[in2, out2]("b")
+	wb := blueprint.Wire(b, blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }))
 
 	raw, _ := json.Marshal(out1{A: "x"})
-	_, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {raw, raw}})
+	_, err := wb.BuildInput(nil, map[string][]json.RawMessage{"a": {raw, raw}})
 	assert.ErrorContains(t, err, "Merge")
 }
 
@@ -264,24 +268,43 @@ func TestBuildInput_Merge_AggregatesAll(t *testing.T) {
 	type outVal struct{ V string }
 
 	a := blueprint.Define[in1, outVal]("a")
-	b := blueprint.Define[inSlice, out3]("b",
-		blueprint.Merge(a, func(outs []outVal, in *inSlice) {
-			for _, o := range outs {
-				in.Values = append(in.Values, o.V)
-			}
-		}),
-	)
+	b := blueprint.Define[inSlice, out3]("b")
+	wb := blueprint.Wire(b, blueprint.Merge(a, func(outs []outVal, in *inSlice) {
+		for _, o := range outs {
+			in.Values = append(in.Values, o.V)
+		}
+	}))
 
 	r1, _ := json.Marshal(outVal{V: "x"})
 	r2, _ := json.Marshal(outVal{V: "y"})
 	r3, _ := json.Marshal(outVal{V: "z"})
 
-	result, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {r1, r2, r3}})
+	result, err := wb.BuildInput(nil, map[string][]json.RawMessage{"a": {r1, r2, r3}})
 	require.NoError(t, err)
 
 	var got inSlice
 	require.NoError(t, json.Unmarshal(result, &got))
 	assert.Equal(t, []string{"x", "y", "z"}, got.Values)
+}
+
+func TestBuildInput_Merge_EmptyOutputs(t *testing.T) {
+	type inSlice struct{ Values []string }
+	type outVal struct{ V string }
+
+	a := blueprint.Define[in1, outVal]("a")
+	b := blueprint.Define[inSlice, out3]("b")
+	wb := blueprint.Wire(b, blueprint.Merge(a, func(outs []outVal, in *inSlice) {
+		for _, o := range outs {
+			in.Values = append(in.Values, o.V)
+		}
+	}))
+
+	result, err := wb.BuildInput(nil, map[string][]json.RawMessage{"a": {}})
+	require.NoError(t, err)
+
+	var got inSlice
+	require.NoError(t, json.Unmarshal(result, &got))
+	assert.Empty(t, got.Values)
 }
 
 // --- SplitWith ---
@@ -330,14 +353,13 @@ func TestBuildInput_SplitWith_BasePreservedWithIntake(t *testing.T) {
 		FromDep  string
 	}
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[mixed, out2]("b",
-		blueprint.Intake(a, func(o out1, in *mixed) { in.FromDep = o.A }),
-	)
+	b := blueprint.Define[mixed, out2]("b")
+	wb := blueprint.Wire(b, blueprint.Intake(a, func(o out1, in *mixed) { in.FromDep = o.A }))
 
 	base, _ := json.Marshal(mixed{FromItem: "item-seed"})
 	raw, _ := json.Marshal(out1{A: "dep-val"})
 
-	result, err := b.BuildInput(base, map[string][]json.RawMessage{"a": {raw}})
+	result, err := wb.BuildInput(base, map[string][]json.RawMessage{"a": {raw}})
 	require.NoError(t, err)
 
 	var got mixed
@@ -350,10 +372,8 @@ func TestBuildInput_SplitWith_BasePreservedWithIntake(t *testing.T) {
 
 func TestAfter_CreatesDepEdge(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.After[in2](a),
-	)
-	bp := blueprint.New("bp", a, b)
+	b := blueprint.Define[in2, out2]("b")
+	bp := blueprint.New("bp", a, blueprint.Wire(b, blueprint.After[in2](a)))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	aID := taskByKey(m, "a")[0].ID
@@ -370,10 +390,8 @@ func TestAfter_CreatesDepEdge(t *testing.T) {
 
 func TestAfter_NotInitialTask(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.After[in2](a),
-	)
-	bp := blueprint.New("bp", a, b)
+	b := blueprint.Define[in2, out2]("b")
+	bp := blueprint.New("bp", a, blueprint.Wire(b, blueprint.After[in2](a)))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	pending := m.PendingTasks()
@@ -383,52 +401,30 @@ func TestAfter_NotInitialTask(t *testing.T) {
 
 func TestAfter_NeedsDepData_False(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.After[in2](a),
-	)
-	assert.False(t, b.NeedsDepData())
+	b := blueprint.Define[in2, out2]("b")
+	wb := blueprint.Wire(b, blueprint.After[in2](a))
+	assert.False(t, wb.NeedsDepData())
 }
 
 func TestAfter_NeedsDepData_TrueWithIntake(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
+	b := blueprint.Define[in2, out2]("b")
+	wb := blueprint.Wire(b,
 		blueprint.After[in2](a),
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
 	)
-	assert.True(t, b.NeedsDepData())
+	assert.True(t, wb.NeedsDepData())
 }
 
 func TestAfter_BuildInput_NoData(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
-	b := blueprint.Define[in2, out2]("b",
-		blueprint.After[in2](a),
-	)
+	b := blueprint.Define[in2, out2]("b")
+	wb := blueprint.Wire(b, blueprint.After[in2](a))
 
-	result, err := b.BuildInput(nil, nil)
+	result, err := wb.BuildInput(nil, nil)
 	require.NoError(t, err)
 
 	var got in2
 	require.NoError(t, json.Unmarshal(result, &got))
 	assert.Equal(t, in2{}, got)
-}
-
-func TestBuildInput_Merge_EmptyOutputs(t *testing.T) {
-	type inSlice struct{ Values []string }
-	type outVal struct{ V string }
-
-	a := blueprint.Define[in1, outVal]("a")
-	b := blueprint.Define[inSlice, out3]("b",
-		blueprint.Merge(a, func(outs []outVal, in *inSlice) {
-			for _, o := range outs {
-				in.Values = append(in.Values, o.V)
-			}
-		}),
-	)
-
-	result, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {}})
-	require.NoError(t, err)
-
-	var got inSlice
-	require.NoError(t, json.Unmarshal(result, &got))
-	assert.Empty(t, got.Values)
 }

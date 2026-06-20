@@ -7,9 +7,10 @@ CREATE TABLE blueprints (
 );
 
 CREATE TABLE blueprint_tasks (
-    id           UUID        PRIMARY KEY,
-    blueprint_id UUID        NOT NULL REFERENCES blueprints (id),
-    key          TEXT        NOT NULL,
+    id             UUID        PRIMARY KEY,
+    blueprint_id   UUID        NOT NULL REFERENCES blueprints (id),
+    blueprint_name TEXT        NOT NULL,
+    key            TEXT        NOT NULL,
     status       TEXT        NOT NULL CHECK (status IN ('pending', 'dispatched', 'running', 'success', 'failed')),
     payload      JSONB,
     result       JSONB,
