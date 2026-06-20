@@ -122,14 +122,25 @@ func (o *Gonveyor) handler() transport.HandlerFunc {
 			if ferr := o.ledger.RecordFailed(ctx, task.ID, err); ferr != nil {
 				Logger.Error("RecordFailed failed", "task", task.ID, "err", ferr)
 			}
+			o.publish(ctx, events.Event{Type: ledger.EventNodeFailed, Node: task})
 			return nil, err
 		}
 
 		if err := o.OnComplete(ctx, task.ID, result); err != nil {
 			Logger.Error("OnComplete failed", "task", task.ID, "err", err)
 		}
+		o.publish(ctx, events.Event{Type: ledger.EventNodeCompleted, Node: task})
 
 		return result, nil
+	}
+}
+
+func (o *Gonveyor) publish(ctx context.Context, event events.Event) {
+	if o.eventPublisher == nil {
+		return
+	}
+	if err := o.eventPublisher.Publish(ctx, event); err != nil {
+		Logger.Error("event publish failed", "type", event.Type, "node", event.Node.ID, "err", err)
 	}
 }
 

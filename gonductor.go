@@ -37,6 +37,7 @@ func (c *Gonductor) Launch(ctx context.Context, manifest ledger.BlueprintManifes
 		if err := c.dispatcher.Publish(ctx, n); err != nil {
 			return err
 		}
+		c.publish(ctx, events.Event{Type: ledger.EventNodeDispatched, Node: n})
 	}
 	return nil
 }
@@ -53,6 +54,16 @@ func (c *Gonductor) SendSignal(ctx context.Context, blueprintID, signalKey strin
 		if err := c.dispatcher.Publish(ctx, n); err != nil {
 			return err
 		}
+		c.publish(ctx, events.Event{Type: ledger.EventNodeDispatched, Node: n})
 	}
 	return nil
+}
+
+func (c *Gonductor) publish(ctx context.Context, event events.Event) {
+	if c.eventPublisher == nil {
+		return
+	}
+	if err := c.eventPublisher.Publish(ctx, event); err != nil {
+		Logger.Error("event publish failed", "type", event.Type, "node", event.Node.ID, "err", err)
+	}
 }
