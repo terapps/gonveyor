@@ -8,43 +8,12 @@
 - Manifest validation — error if a root task has no `Seed`
 - Heartbeat / distributed lock — 30s lease renewed every 15s
 - Race safety — conditional UPDATEs prevent double-execution
+- Event sourcing — append-only `node_events` log; task status is a projection
+- Signals — external events (`Signal[T]`) that unblock waiting nodes via `SendSignal`
 
----
+--- 
 
 ## Planned
-
-### Event Sourcing
-
-Replace mutable task state with an append-only event log. Current task status becomes a projection of events rather than a directly mutated column.
-
-**Events:** `task_dispatched`, `task_started`, `task_completed`, `task_failed`, `task_retried`, `blueprint_completed`
-
-**What it unlocks — for free:**
-- **Replay / time-travel debugging** — reconstruct blueprint state at any point in time
-- **UI real-time updates** — Postgres `LISTEN/NOTIFY` on the events table, no polling
-- **Metrics / alerting** — consumers read from the event log, no in-memory bus needed
-- **Audit log** — durable, queryable, survives restarts
-- **Distributed** — all workers emit to the same log, all consumers see the same events
-
-**Approach:** pragmatic hybrid — event log runs in parallel with the existing `blueprint_tasks` projection. No full rewrite of the store; transitions (`SetRunning`, `SetSuccess`, `SetFailed`) append an event as a side effect. Pure event sourcing (state derived solely from events) is a future option once the log is established.
-
----
-
-### Signals
-
-External events that unblock a waiting task. Use case: human approval, webhook callback, external system confirmation.
-
-A task declares it waits for a named signal; the signal is sent via an API call and unblocks dispatch.
-
-```go
-var AwaitApproval = blueprint.Signal[ApprovalPayload]("await_approval")
-
-var Process = blueprint.Define[ProcessInput, ProcessOutput]("process",
-    gonveyor.OnSignal(AwaitApproval, func(s ApprovalPayload, in *ProcessInput) {
-        in.ApprovedBy = s.UserID
-    }),
-)
-```
 
 ### OpenTelemetry
 
@@ -54,7 +23,7 @@ Zero-config by default — picks up the ambient OTEL exporter if one is configur
 
 ---
 
-### Notification queue
+### Real time updates / Notification queue
 
 Emit structured events (blueprint launched, task completed, task failed, blueprint completed) to a secondary queue so external consumers can react without polling Postgres. Backends: AMQP (fanout exchange), webhook, or direct Postgres `LISTEN/NOTIFY`.
 
