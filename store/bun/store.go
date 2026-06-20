@@ -79,10 +79,26 @@ func (s *Store) GetBlueprint(ctx context.Context, blueprintID string) (store.Blu
 	}
 
 	return store.BlueprintManifest{
-		Blueprint:    store.Blueprint{ID: bp.ID, Name: bp.Name},
+		Blueprint:    store.Blueprint{ID: bp.ID, Name: bp.Name, CreatedAt: bp.CreatedAt, UpdatedAt: bp.UpdatedAt, DispatchedAt: bp.DispatchedAt},
 		Tasks:        tasks,
 		Dependencies: deps,
 	}, nil
+}
+
+func (s *Store) SetBlueprintDispatched(ctx context.Context, blueprintID string) error {
+	return s.blueprintRepo.SetDispatched(ctx, blueprintID)
+}
+
+func (s *Store) ListBlueprints(ctx context.Context) ([]store.Blueprint, error) {
+	bps, err := s.blueprintRepo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]store.Blueprint, len(bps))
+	for i, bp := range bps {
+		out[i] = store.Blueprint{ID: bp.ID, Name: bp.Name, CreatedAt: bp.CreatedAt, UpdatedAt: bp.UpdatedAt, DispatchedAt: bp.DispatchedAt}
+	}
+	return out, nil
 }
 
 func (s *Store) GetTask(ctx context.Context, taskID string) (store.Task, error) {

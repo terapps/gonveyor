@@ -25,3 +25,19 @@ func (r *Repository) Get(ctx context.Context, blueprintID string) (*Blueprint, e
 	err := r.db.NewSelect().Model(m).Where("id = ?", blueprintID).Scan(ctx)
 	return m, err
 }
+
+func (r *Repository) List(ctx context.Context) ([]*Blueprint, error) {
+	var ms []*Blueprint
+	err := r.db.NewSelect().Model(&ms).OrderExpr("created_at DESC").Scan(ctx)
+	return ms, err
+}
+
+func (r *Repository) SetDispatched(ctx context.Context, blueprintID string) error {
+	_, err := r.db.NewUpdate().
+		TableExpr("blueprints").
+		Set("dispatched_at = now()").
+		Where("id = ?", blueprintID).
+		Where("dispatched_at IS NULL").
+		Exec(ctx)
+	return err
+}

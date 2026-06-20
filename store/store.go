@@ -4,6 +4,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // TaskStatus represents the lifecycle state of a task.
@@ -20,8 +21,11 @@ const (
 
 // Blueprint is the domain representation of a workflow definition.
 type Blueprint struct {
-	ID   string
-	Name string
+	ID           string
+	Name         string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DispatchedAt *time.Time
 }
 
 // Task is the domain representation of a single unit of work within a blueprint.
@@ -70,6 +74,8 @@ func (m BlueprintManifest) PendingTasks() []Task {
 type Store interface {
 	CreateBlueprint(ctx context.Context, manifest BlueprintManifest) error
 	GetBlueprint(ctx context.Context, blueprintID string) (BlueprintManifest, error)
+	ListBlueprints(ctx context.Context) ([]Blueprint, error)
+	SetBlueprintDispatched(ctx context.Context, blueprintID string) error
 
 	GetTask(ctx context.Context, taskID string) (Task, error)
 	SetDispatched(ctx context.Context, taskID string) (bool, error)

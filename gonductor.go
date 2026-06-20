@@ -26,19 +26,23 @@ func (c *Gonductor) Submit(ctx context.Context, manifest store.BlueprintManifest
 
 // Dispatch marks tasks as dispatched and publishes them to the queue.
 func (c *Gonductor) Dispatch(ctx context.Context, tasks []store.Task) error {
+	dispatched := false
 	for _, t := range tasks {
-		dispatched, err := c.store.SetDispatched(ctx, t.ID)
+		ok, err := c.store.SetDispatched(ctx, t.ID)
 		if err != nil {
 			return err
 		}
-
-		if !dispatched {
+		if !ok {
 			continue
 		}
-
 		if err := c.dispatcher.Publish(ctx, t); err != nil {
 			return err
 		}
+		dispatched = true
+	}
+
+	if dispatched && len(tasks) > 0 {
+		_ = c.store.SetBlueprintDispatched(ctx, tasks[0].BlueprintID)
 	}
 
 	return nil

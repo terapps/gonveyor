@@ -52,6 +52,10 @@ func (m *mockStore) GetTask(_ context.Context, _ string) (store.Task, error) {
 	return store.Task{}, nil
 }
 func (m *mockStore) Pending(_ context.Context, _ string) ([]store.Task, error) { return nil, nil }
+func (m *mockStore) ListBlueprints(_ context.Context) ([]store.Blueprint, error) {
+	return nil, nil
+}
+func (m *mockStore) SetBlueprintDispatched(_ context.Context, _ string) error { return nil }
 
 type mockDispatcher struct {
 	publish func(ctx context.Context, task store.Task) error
