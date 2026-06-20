@@ -78,6 +78,22 @@ cut_steel ──┬──> drill_holes/0 ──┐
 
 Downstream tasks wait for **all** split instances before unblocking.
 
+### Fan-out with `SplitWith`
+
+When N is only known at runtime and each instance needs distinct input data:
+
+```go
+files, _ := repo.ListFiles(ctx, gameVersionID)
+
+manifest, _ := bp.Manifest(input,
+    gonveyor.SplitWith(ProcessFile, files, func(f FileRef, in *ProcessInput) {
+        in.FileID = f.ID
+    }),
+)
+```
+
+N is `len(files)`. Each instance is seeded with its own payload at manifest creation. If `ProcessFile` also has `Intake` deps, their results are merged on top of the seed at dispatch time.
+
 ### Fan-in with `Merge`
 
 When a downstream task needs to collect N outputs into a slice:

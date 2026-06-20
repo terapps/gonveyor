@@ -36,25 +36,16 @@ ImportResearch  ImportSaveFile
 
 `ImportResource` joue le rôle de relais pour une donnée qui ne lui appartient pas.
 
-## `DefineMany` — fan-out runtime depuis une station
+## ✓ SplitWith — fan-out runtime avec payload par instance
 
-`Split(station, N)` requiert de connaître N à la création du manifest. Problème : quand N n'est connu qu'à runtime (ex: nombre de fichiers attachés à une game version), il faut faire une requête DB avant de créer le manifest et il n'existe pas de mécanisme pour que chaque instance sache quel item elle traite.
-
-Proposition : `DefineMany[I, O]` — station dont le handler retourne `[]O`. Gonveyor persiste N résultats en une seule exécution. Les downstream utilisent `Merge` inchangé.
+`Split(station, N)` requiert N connu à la création du manifest. Résolu par `SplitWith` : N est `len(items)`, chaque instance reçoit un payload distinct baked au manifest. Les `Intake`/`Merge` deps s'appliquent par-dessus au dispatch.
 
 ```go
-var StationListFiles = blueprint.DefineMany[GameVersionInput, FileRef]("list_files")
-
-// handler
-func(ctx, in GameVersionInput) ([]FileRef, error) { return repo.ListFiles(ctx, in.GameVersionID) }
-
-// downstream
-gonveyor.Merge(StationListFiles, func(files []FileRef, in *ResearchInput) {
-    // filtre par rôle
+files, _ := repo.ListFiles(ctx, gameVersionID)
+gonveyor.SplitWith(ProcessFile, files, func(f FileRef, in *ProcessInput) {
+    in.FileID = f.ID
 })
 ```
-
-Manifest reste simple, pas de `Split(N)` à l'appel. `Merge` collecte les N outputs exactement comme pour un split statique.
 
 ## NTH — Signal blueprints gelés par tâche failed
 
