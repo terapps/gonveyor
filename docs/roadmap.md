@@ -4,7 +4,7 @@
 
 - Typed DAG DSL — `Define`, `Intake`, `Merge`, `After`
 - `Seed` — explicit payload injection at manifest time, works alongside dep-based injection
-- `Split` / `SplitWith` — fan-out with static N or per-instance payloads
+- `Fan` / `Seeds` — fan-out with static N or per-instance payloads
 - Manifest validation — error if a root task has no `Seed`
 - Heartbeat / distributed lock — 30s lease renewed every 15s
 - Race safety — conditional UPDATEs prevent double-execution
@@ -46,33 +46,6 @@ var Process = blueprint.Define[ProcessInput, ProcessOutput]("process",
 )
 ```
 
----
-
-### Sleep / Durable Timers
-
-A task that delays dispatch of downstream tasks for a fixed duration — survives process restarts.
-
----
-
-### Child Workflows
-
-Spawn a full blueprint from within a handler — the parent task can optionally wait for it to complete.
-// Bof
-
----
-
-### Task Versioning
-
-Run multiple versions of the same task definition in parallel — useful for rolling deploys without draining the queue first.
-
-```go
-var ProcessFile = blueprint.Define[ProcessFileInput, ProcessFileOutput]("process_file@v2")
-```
-
-Routing: workers advertise which versions they handle; the dispatcher targets accordingly. Old in-flight tasks on `v1` finish on `v1` workers, new tasks go to `v2`.
-
----
-
 ### UI
 
 Web dashboard for monitoring blueprint instances and task state — the gonveyor equivalent of Asynqmon or the Temporal Web UI.
@@ -85,8 +58,3 @@ Views:
 
 Stack TBD — likely a small Go HTTP server serving a single-page app. Reads from the existing Postgres store, no additional infra.
 
----
-
-## Not planned
-
-- **Saga / compensating transactions** — expressible today by adding rollback tasks to the DAG manually

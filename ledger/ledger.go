@@ -16,59 +16,60 @@ type Blueprint struct {
 	DispatchedAt *time.Time
 }
 
-// Task is the domain representation of a single unit of work within a blueprint.
-type Task struct {
+// Node is a persisted runtime instance of a workflow node within a blueprint.
+// It corresponds to a blueprint.Station definition at execution time.
+// NodeType is either "task" (executed by a worker) or "signal" (activated by SendSignal).
+type Node struct {
 	ID            string
 	BlueprintID   string
 	BlueprintName string
 	Key           string
+	NodeType      string
 	Payload       []byte
 }
 
-// TaskDependency records that a task must complete before another can start.
-type TaskDependency struct {
-	TaskID      string
+// NodeDependency records that a node must complete before another can start.
+type NodeDependency struct {
+	NodeID      string
 	DependsOnID string
 }
 
-// BlueprintManifest groups a blueprint with its tasks and dependency edges.
+// BlueprintManifest groups a blueprint with its nodes and dependency edges.
 type BlueprintManifest struct {
-	Blueprint    Blueprint
-	Tasks        []Task
-	Dependencies []TaskDependency
+	Blueprint       Blueprint
+	Nodes           []Node
+	NodeDependencies []NodeDependency
 }
 
-// RootTasks returns tasks that have no incoming dependencies.
-func (m BlueprintManifest) RootTasks() []Task {
-	blocked := make(map[string]struct{}, len(m.Dependencies))
-	for _, d := range m.Dependencies {
-		blocked[d.TaskID] = struct{}{}
+// RootNodes returns nodes that have no incoming dependencies.
+func (m BlueprintManifest) RootNodes() []Node {
+	blocked := make(map[string]struct{}, len(m.NodeDependencies))
+	for _, d := range m.NodeDependencies {
+		blocked[d.NodeID] = struct{}{}
 	}
-	out := make([]Task, 0)
-	for _, t := range m.Tasks {
-		if _, ok := blocked[t.ID]; !ok {
-			out = append(out, t)
+	out := make([]Node, 0)
+	for _, n := range m.Nodes {
+		if _, ok := blocked[n.ID]; !ok {
+			out = append(out, n)
 		}
 	}
 	return out
 }
 
 // Ledger is the unified persistence interface consumed by the orchestrator.
-// CreateBlueprint atomically persists the manifest and dispatches root tasks,
+// CreateBlueprint atomically persists the manifest and dispatches root task nodes,
 // returning them for immediate publication to the message queue.
-// SetSuccess atomically records completion, decrements downstream pending_deps,
-// dispatches newly unblocked tasks, and returns them for publication.
+// RecordCompleted atomically records completion, decrements downstream pending_deps,
+// dispatches newly unblocked nodes, and returns them for publication.
+// SendSignal completes a signal node and dispatches its newly unblocked successors.
 type Ledger interface {
-	CreateBlueprint(ctx context.Context, manifest BlueprintManifest) ([]Task, error)
-	GetBlueprint(ctx context.Context, blueprintID string) (BlueprintManifest, error)
-	ListBlueprints(ctx context.Context) ([]Blueprint, error)
+	CreateBlueprint(ctx context.Context, manifest BlueprintManifest) ([]Node, error)
 
-	GetTask(ctx context.Context, taskID string) (Task, error)
-	SetDispatched(ctx context.Context, taskID string) (bool, error)
-	SetRunning(ctx context.Context, taskID string) (bool, error)
-	SetSuccess(ctx context.Context, taskID string, result any) (bool, []Task, error)
-	SetFailed(ctx context.Context, taskID string, err error) error
-	RenewLock(ctx context.Context, taskID string) error
+	GetNode(ctx context.Context, nodeID string) (Node, error)
+	Claim(ctx context.Context, nodeID string) (keepalive func() error, ok bool, err error)
+	RecordCompleted(ctx context.Context, nodeID string, result any) (bool, []Node, error)
+	RecordFailed(ctx context.Context, nodeID string, err error) error
+	SendSignal(ctx context.Context, blueprintID string, signalKey string, payload any) ([]Node, error)
 
-	GatherDepResults(ctx context.Context, taskID string) (map[string][]json.RawMessage, error)
+	GatherDepResults(ctx context.Context, nodeID string) (map[string][]json.RawMessage, error)
 }

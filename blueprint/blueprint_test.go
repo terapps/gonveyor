@@ -29,9 +29,9 @@ func mustManifest(t *testing.T, bp *blueprint.Blueprint, opts ...blueprint.Manif
 	return m
 }
 
-func taskByKey(m ledger.BlueprintManifest, key string) []ledger.Task {
-	var out []ledger.Task
-	for _, t := range m.Tasks {
+func taskByKey(m ledger.BlueprintManifest, key string) []ledger.Node {
+	var out []ledger.Node
+	for _, t := range m.Nodes {
 		if t.Key == key {
 			out = append(out, t)
 		}
@@ -95,7 +95,7 @@ func TestManifest_RootIsInitial(t *testing.T) {
 	))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{A: "hello"}))
 
-	roots := m.RootTasks()
+	roots := m.RootNodes()
 	require.Len(t, roots, 1)
 	assert.Equal(t, "a", roots[0].Key)
 }
@@ -109,7 +109,7 @@ func TestManifest_DepTaskNotInitial(t *testing.T) {
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
 	rootIDs := make(map[string]struct{})
-	for _, t := range m.RootTasks() {
+	for _, t := range m.RootNodes() {
 		rootIDs[t.ID] = struct{}{}
 	}
 	for _, task := range taskByKey(m, "b") {
@@ -135,7 +135,7 @@ func TestManifest_BlueprintName(t *testing.T) {
 	bp := blueprint.New("my_bp", a)
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
-	for _, task := range m.Tasks {
+	for _, task := range m.Nodes {
 		assert.Equal(t, "my_bp", task.BlueprintName)
 	}
 }
@@ -165,8 +165,8 @@ func TestManifest_Fan_DownstreamWaitsAll(t *testing.T) {
 	require.Len(t, cTasks, 1)
 
 	var cDeps []string
-	for _, d := range m.Dependencies {
-		if d.TaskID == cTasks[0].ID {
+	for _, d := range m.NodeDependencies {
+		if d.NodeID == cTasks[0].ID {
 			cDeps = append(cDeps, d.DependsOnID)
 		}
 	}
@@ -185,8 +185,8 @@ func TestManifest_DepWiring(t *testing.T) {
 	bID := taskByKey(m, "b")[0].ID
 
 	var found bool
-	for _, d := range m.Dependencies {
-		if d.TaskID == bID && d.DependsOnID == aID {
+	for _, d := range m.NodeDependencies {
+		if d.NodeID == bID && d.DependsOnID == aID {
 			found = true
 		}
 	}
@@ -380,8 +380,8 @@ func TestAfter_CreatesDepEdge(t *testing.T) {
 	bID := taskByKey(m, "b")[0].ID
 
 	var found bool
-	for _, d := range m.Dependencies {
-		if d.TaskID == bID && d.DependsOnID == aID {
+	for _, d := range m.NodeDependencies {
+		if d.NodeID == bID && d.DependsOnID == aID {
 			found = true
 		}
 	}
@@ -394,7 +394,7 @@ func TestAfter_NotInitialTask(t *testing.T) {
 	bp := blueprint.New("bp", a, blueprint.Wire(b, blueprint.After[in2](a)))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
-	roots := m.RootTasks()
+	roots := m.RootNodes()
 	require.Len(t, roots, 1)
 	assert.Equal(t, "a", roots[0].Key)
 }
@@ -427,4 +427,47 @@ func TestAfter_BuildInput_NoData(t *testing.T) {
 	var got in2
 	require.NoError(t, json.Unmarshal(result, &got))
 	assert.Equal(t, in2{}, got)
+}
+
+// --- Signal ---
+
+type approvalPayload struct{ UserID string }
+
+func TestSignal_NodeType_InManifest(t *testing.T) {
+	sig := blueprint.Signal[approvalPayload]("await_approval")
+	process := blueprint.Define[in1, out1]("process")
+	bp := blueprint.New("sig_bp",
+		sig,
+		blueprint.Wire(process, blueprint.Intake(sig, func(_ approvalPayload, in *in1) {})),
+	)
+	m := mustManifest(t, bp, blueprint.Seed(process, in1{}))
+
+	sigNodes := taskByKey(m, "await_approval")
+	require.Len(t, sigNodes, 1)
+	assert.Equal(t, "signal", sigNodes[0].NodeType)
+
+	taskNodes := taskByKey(m, "process")
+	require.Len(t, taskNodes, 1)
+	assert.Equal(t, "", taskNodes[0].NodeType)
+}
+
+func TestSignal_RootNodes_ExcludesSignal(t *testing.T) {
+	sig := blueprint.Signal[approvalPayload]("approve")
+	process := blueprint.Define[in1, out1]("process")
+	bp := blueprint.New("sig_bp2",
+		sig,
+		blueprint.Wire(process, blueprint.Intake(sig, func(_ approvalPayload, in *in1) {})),
+	)
+	m := mustManifest(t, bp, blueprint.Seed(process, in1{}))
+
+	roots := m.RootNodes()
+	// Signal node has no task deps so it appears as a root, but Gonductor.Launch
+	// skips it based on NodeType — RootNodes() itself is NodeType-agnostic.
+	// This test documents the current behaviour.
+	keys := make([]string, len(roots))
+	for i, r := range roots {
+		keys[i] = r.Key
+	}
+	assert.Contains(t, keys, "approve")
+	assert.NotContains(t, keys, "process")
 }

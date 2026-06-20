@@ -11,7 +11,7 @@ import (
 
 // Handle wraps a typed handler function into a HandlerFunc.
 func Handle[I, O any](_ *blueprint.Station[I, O], fn func(context.Context, I) (O, error)) TaskHandler {
-	return func(ctx context.Context, task ledger.Task) (any, error) {
+	return func(ctx context.Context, task ledger.Node) (any, error) {
 		var input I
 		if err := json.Unmarshal(task.Payload, &input); err != nil {
 			return nil, fmt.Errorf("unmarshal input: %w", err)
@@ -37,7 +37,7 @@ func After[I any](from blueprint.AnyDef) blueprint.DepOption[I] {
 }
 
 // Wire creates a wired node — a Station with its blueprint-specific dependency declarations.
-func Wire[I, O any](def *blueprint.Station[I, O], deps ...blueprint.DepOption[I]) blueprint.AnyWiredNode {
+func Wire[I, O any](def *blueprint.Station[I, O], deps ...blueprint.DepOption[I]) blueprint.AnyWiredStation {
 	return blueprint.Wire(def, deps...)
 }
 

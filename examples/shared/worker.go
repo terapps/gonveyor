@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/terapps/gonveyor"
-	bunstore "github.com/terapps/gonveyor/store/bun"
+	bunledger "github.com/terapps/gonveyor/ledger/bun"
 	"github.com/terapps/gonveyor/transport/amqp"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
@@ -35,7 +35,7 @@ func BuildGonductor(cfg Config) (*gonveyor.Gonductor, func(), error) {
 		return nil, nil, err
 	}
 
-	store := bunstore.New(db)
+	store := bunledger.New(db)
 
 	conn, err := amqp.Dial(envOr("AMQP_URL", defaultAMQPURL))
 	if err != nil {
@@ -73,7 +73,7 @@ func Build(cfg Config) (*gonveyor.Gonveyor, func(), error) {
 		return nil, nil, err
 	}
 
-	store := bunstore.New(db)
+	store := bunledger.New(db)
 
 	conn, err := amqp.Dial(amqpURL)
 	if err != nil {

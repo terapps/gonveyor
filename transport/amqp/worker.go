@@ -207,14 +207,14 @@ func (w *Worker) handle(ctx context.Context, d amqp091.Delivery, handler transpo
 		return
 	}
 
-	var task ledger.Task
+	var task ledger.Node
 	if err := json.Unmarshal(d.Body, &task); err != nil {
 		gonveyor.Logger.Error("failed to unmarshal task", "err", err)
 		_ = d.Nack(false, false)
 		return
 	}
 
-	// ack is called by the handler after claiming the task (post-SetRunning).
+	// ack is called by the handler after claiming the task (post-RecordStarted).
 	// Once called, we never NACK — crashes after this point are handled by the reaper.
 	var acked bool
 	ack := sync.OnceFunc(func() {
@@ -236,7 +236,7 @@ func (w *Worker) handle(ctx context.Context, d amqp091.Delivery, handler transpo
 
 // call invokes the handler with a non-cancellable context so that shutdown signals
 // do not interrupt a task mid-execution.
-func (w *Worker) call(ctx context.Context, task ledger.Task, handler transport.HandlerFunc, ack func()) (err error) {
+func (w *Worker) call(ctx context.Context, task ledger.Node, handler transport.HandlerFunc, ack func()) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)

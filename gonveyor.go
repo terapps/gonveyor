@@ -13,7 +13,7 @@ import (
 )
 
 // TaskHandler is the user-facing handler type: business logic only, no transport concerns.
-type TaskHandler func(ctx context.Context, task ledger.Task) (any, error)
+type TaskHandler func(ctx context.Context, task ledger.Node) (any, error)
 
 // Gonveyor orchestrates task execution across a distributed worker pool.
 type Gonveyor struct {
@@ -54,9 +54,9 @@ func (o *Gonveyor) Listen(ctx context.Context) error {
 	return nil
 }
 
-// OnComplete marks a task as successful and publishes any newly unblocked tasks.
+// OnComplete marks a node as successful and publishes any newly unblocked nodes.
 func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) error {
-	ok, tasks, err := o.ledger.SetSuccess(ctx, taskID, result)
+	ok, tasks, err := o.ledger.RecordCompleted(ctx, taskID, result)
 	if err != nil {
 		return err
 	}
@@ -80,6 +80,7 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 				}
 			}
 		}
+
 		if err := o.dispatcher.Publish(ctx, t); err != nil {
 			return err
 		}
@@ -89,13 +90,13 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 }
 
 func (o *Gonveyor) handler() transport.HandlerFunc {
-	return func(ctx context.Context, task ledger.Task, ack func()) (any, error) {
+	return func(ctx context.Context, task ledger.Node, ack func()) (any, error) {
 		fn, ok := o.handlers[task.Key]
 		if !ok {
 			return nil, fmt.Errorf("no handler registered for task key %q", task.Key)
 		}
 
-		ok, err := o.ledger.SetRunning(ctx, task.ID)
+		keepalive, ok, err := o.ledger.Claim(ctx, task.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -110,12 +111,12 @@ func (o *Gonveyor) handler() transport.HandlerFunc {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		go o.heartbeat(ctx, task.ID)
+		go o.heartbeat(ctx, task.ID, keepalive)
 
 		result, err := fn(ctx, task)
 		if err != nil {
-			if ferr := o.ledger.SetFailed(ctx, task.ID, err); ferr != nil {
-				Logger.Error("SetFailed failed", "task", task.ID, "err", ferr)
+			if ferr := o.ledger.RecordFailed(ctx, task.ID, err); ferr != nil {
+				Logger.Error("RecordFailed failed", "task", task.ID, "err", ferr)
 			}
 			return nil, err
 		}
@@ -128,14 +129,16 @@ func (o *Gonveyor) handler() transport.HandlerFunc {
 	}
 }
 
-func (o *Gonveyor) heartbeat(ctx context.Context, taskID string) {
+func (o *Gonveyor) heartbeat(ctx context.Context, taskID string, keepalive func() error) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			_ = o.ledger.RenewLock(ctx, taskID)
+			if err := keepalive(); err != nil {
+				Logger.Error("heartbeat failed", "task", taskID, "err", err)
+			}
 		case <-ctx.Done():
 			return
 		}

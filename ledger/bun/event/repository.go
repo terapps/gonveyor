@@ -1,0 +1,96 @@
+package event
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/terapps/gonveyor/ledger/bun/bunutil"
+	"github.com/uptrace/bun"
+)
+
+type Repository struct {
+	db *bun.DB
+}
+
+func New(db *bun.DB) *Repository {
+	return &Repository{db: db}
+}
+
+func (r *Repository) Insert(ctx context.Context, events []*NodeEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	_, err := bunutil.IDB(ctx, r.db).NewInsert().Model(&events).Exec(ctx)
+	return err
+}
+
+// InsertCompleted inserts the node_completed event. Returns false (nil error) if the
+// node was already completed (idempotent redelivery guard via partial unique index).
+// Must be called within a transaction — uses bunutil.IDB to pick up the tx from ctx.
+func (r *Repository) RecordCompleted(ctx context.Context, nodeID string, result json.RawMessage) (bool, error) {
+	// ON CONFLICT predicate must match the partial index — interpolated, not parametrized.
+	res, err := bunutil.IDB(ctx, r.db).ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO node_events (node_id, blueprint_id, key, type, output)
+		SELECT id, blueprint_id, key, ?, ?::jsonb
+		FROM blueprint_nodes WHERE id = ?
+		ON CONFLICT (node_id, type) WHERE type = '%s' DO NOTHING
+	`, EventNodeCompleted), EventNodeCompleted, string(result), nodeID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (r *Repository) RecordStarted(ctx context.Context, nodeID string) (bool, error) {
+	_, err := bunutil.IDB(ctx, r.db).ExecContext(ctx, `
+		INSERT INTO node_events (node_id, blueprint_id, key, type)
+		SELECT id, blueprint_id, key, ?
+		FROM blueprint_nodes WHERE id = ?
+	`, EventNodeStarted, nodeID)
+	return err == nil, err
+}
+
+func (r *Repository) RecordFailed(ctx context.Context, nodeID string, errMsg string) error {
+	_, err := bunutil.IDB(ctx, r.db).ExecContext(ctx, `
+		INSERT INTO node_events (node_id, blueprint_id, key, type, error)
+		SELECT id, blueprint_id, key, ?, ?
+		FROM blueprint_nodes WHERE id = ?
+	`, EventNodeFailed, errMsg, nodeID)
+	return err
+}
+
+func (r *Repository) RecordHeartbeat(ctx context.Context, nodeID string) error {
+	_, err := bunutil.IDB(ctx, r.db).NewInsert().
+		Model(&NodeHeartbeat{NodeID: nodeID}).
+		Exec(ctx)
+	return err
+}
+
+func (r *Repository) GatherDepResults(ctx context.Context, nodeID string) (map[string][]json.RawMessage, error) {
+	type row struct {
+		Key    string          `bun:"key"`
+		Output json.RawMessage `bun:"output"`
+	}
+
+	var rows []row
+	err := bunutil.IDB(ctx, r.db).NewSelect().
+		TableExpr("blueprint_node_dependencies d").
+		ColumnExpr("e.key, e.output").
+		Join("JOIN node_events e ON e.node_id = d.depends_on_id AND e.type = ?", EventNodeCompleted).
+		Where("d.node_id = ?", nodeID).
+		Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[string][]json.RawMessage, len(rows))
+	for _, r := range rows {
+		out[r.Key] = append(out[r.Key], r.Output)
+	}
+	return out, nil
+}

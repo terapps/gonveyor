@@ -19,14 +19,31 @@ func NewGonductor(l ledger.Ledger, dispatcher transport.Dispatcher) *Gonductor {
 	return &Gonductor{ledger: l, dispatcher: dispatcher}
 }
 
-// Launch persists a blueprint manifest and publishes its root tasks atomically.
+// Launch persists a blueprint manifest and publishes its root task nodes atomically.
+// Signal nodes are not published — activate them via SendSignal.
 func (c *Gonductor) Launch(ctx context.Context, manifest ledger.BlueprintManifest) error {
-	tasks, err := c.ledger.CreateBlueprint(ctx, manifest)
+	nodes, err := c.ledger.CreateBlueprint(ctx, manifest)
 	if err != nil {
 		return err
 	}
-	for _, t := range tasks {
-		if err := c.dispatcher.Publish(ctx, t); err != nil {
+	for _, n := range nodes {
+		if err := c.dispatcher.Publish(ctx, n); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SendSignal completes the signal node identified by signalKey within blueprintID
+// and publishes any newly unblocked successors. Call this when an external event arrives
+// (e.g. human approval, webhook callback).
+func (c *Gonductor) SendSignal(ctx context.Context, blueprintID, signalKey string, payload any) error {
+	nodes, err := c.ledger.SendSignal(ctx, blueprintID, signalKey, payload)
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		if err := c.dispatcher.Publish(ctx, n); err != nil {
 			return err
 		}
 	}

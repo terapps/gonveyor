@@ -12,7 +12,7 @@ import (
 
 // DebugHandler returns a TaskHandler that logs every field of the incoming task.
 func DebugHandler() gonveyor.TaskHandler {
-	return func(_ context.Context, task ledger.Task) (any, error) {
+	return func(_ context.Context, task ledger.Node) (any, error) {
 		attrs := payloadAttrs(task.Payload)
 
 		slog.Info("task received", append([]any{"id", task.ID, "key", task.Key}, attrs...)...)

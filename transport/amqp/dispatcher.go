@@ -26,7 +26,7 @@ type Dispatcher struct {
 }
 
 // Publish serializes a task and publishes it to the queue.
-func (d *Dispatcher) Publish(ctx context.Context, task ledger.Task) error {
+func (d *Dispatcher) Publish(ctx context.Context, task ledger.Node) error {
 	body, err := json.Marshal(task)
 	if err != nil {
 		return err

@@ -19,6 +19,7 @@ type fakeDef struct {
 }
 
 func (f *fakeDef) Key() string       { return f.key }
+func (f *fakeDef) NodeType() string  { return "" }
 func (f *fakeDef) depList() []anyDep { return f.deps }
 func (f *fakeDef) NeedsDepData() bool { return false }
 func (f *fakeDef) BuildInput(_ json.RawMessage, _ map[string][]json.RawMessage) (json.RawMessage, error) {
@@ -28,18 +29,18 @@ func (f *fakeDef) BuildInput(_ json.RawMessage, _ map[string][]json.RawMessage) 
 func TestFindCycle_NoCycle(t *testing.T) {
 	a := &fakeDef{key: "a"}
 	b := &fakeDef{key: "b", deps: []anyDep{fakeAnyDep{"a"}}}
-	assert.NoError(t, findCycle([]AnyWiredNode{a, b}))
+	assert.NoError(t, findCycle([]AnyWiredStation{a, b}))
 }
 
 func TestFindCycle_DirectCycle(t *testing.T) {
 	a := &fakeDef{key: "a", deps: []anyDep{fakeAnyDep{"b"}}}
 	b := &fakeDef{key: "b", deps: []anyDep{fakeAnyDep{"a"}}}
-	assert.Error(t, findCycle([]AnyWiredNode{a, b}))
+	assert.Error(t, findCycle([]AnyWiredStation{a, b}))
 }
 
 func TestFindCycle_IndirectCycle(t *testing.T) {
 	a := &fakeDef{key: "a", deps: []anyDep{fakeAnyDep{"c"}}}
 	b := &fakeDef{key: "b", deps: []anyDep{fakeAnyDep{"a"}}}
 	c := &fakeDef{key: "c", deps: []anyDep{fakeAnyDep{"b"}}}
-	assert.Error(t, findCycle([]AnyWiredNode{a, b, c}))
+	assert.Error(t, findCycle([]AnyWiredStation{a, b, c}))
 }

@@ -12,21 +12,27 @@ type AnyDef interface {
 	Key() string
 }
 
-// AnyWiredNode is a task node with its blueprint-specific dependency wiring.
-type AnyWiredNode interface {
+// AnyWiredStation is the type-erased interface for a Station with its dependency wiring.
+// It is a node definition (schema/template) — distinct from ledger.Node, which is a
+// persisted runtime instance of that definition.
+type AnyWiredStation interface {
 	AnyDef
+	// NodeType returns "signal" for gateway nodes, "" for regular task nodes.
+	NodeType() string
 	depList() []anyDep
 	NeedsDepData() bool
 	BuildInput(base json.RawMessage, outputs map[string][]json.RawMessage) (json.RawMessage, error)
 }
 
-// Station is a typed task node — input type I, output type O.
-// Implements AnyWiredNode with no deps so it can be passed directly to Blueprint.New as a root node.
+// Station is a typed task node definition — input type I, output type O.
+// Implements AnyWiredStation with no deps so it can be passed directly to Blueprint.New as a root node.
 type Station[I, O any] struct {
-	key string
+	key      string
+	nodeType string // "" = regular task, "signal" = gateway node activated by SendSignal
 }
 
-func (d *Station[I, O]) Key() string          { return d.key }
+func (d *Station[I, O]) Key() string      { return d.key }
+func (d *Station[I, O]) NodeType() string { return d.nodeType }
 func (d *Station[I, O]) depList() []anyDep    { return nil }
 func (d *Station[I, O]) NeedsDepData() bool   { return false }
 func (d *Station[I, O]) BuildInput(base json.RawMessage, _ map[string][]json.RawMessage) (json.RawMessage, error) {
@@ -42,13 +48,22 @@ func Define[I, O any](key string) *Station[I, O] {
 	return &Station[I, O]{key: key}
 }
 
+// Signal creates a gateway node that is never dispatched to a worker.
+// It is activated by Gonductor.SendSignal(blueprintID, key, payload), which completes
+// it and cascades to dispatch any successors. The type parameter T is the signal payload type;
+// successors can receive it via Intake(signalStation, fn).
+func Signal[T any](key string) *Station[struct{}, T] {
+	return &Station[struct{}, T]{key: key, nodeType: "signal"}
+}
+
 // wiredNode wraps a Station with its blueprint-specific dependency wiring.
 type wiredNode[I, O any] struct {
 	station *Station[I, O]
 	deps    []anyDep
 }
 
-func (w *wiredNode[I, O]) Key() string       { return w.station.key }
+func (w *wiredNode[I, O]) Key() string      { return w.station.key }
+func (w *wiredNode[I, O]) NodeType() string { return w.station.nodeType }
 func (w *wiredNode[I, O]) depList() []anyDep { return w.deps }
 
 func (w *wiredNode[I, O]) NeedsDepData() bool {
@@ -80,7 +95,7 @@ func (w *wiredNode[I, O]) BuildInput(base json.RawMessage, outputs map[string][]
 
 // Wire creates a wired node — a Station with its blueprint-specific dependency declarations.
 // Use inside Blueprint.New to declare how this task's input is built from upstream outputs.
-func Wire[I, O any](def *Station[I, O], deps ...DepOption[I]) AnyWiredNode {
+func Wire[I, O any](def *Station[I, O], deps ...DepOption[I]) AnyWiredStation {
 	dd := make([]anyDep, len(deps))
 	for i, d := range deps {
 		dd[i] = d
@@ -91,15 +106,15 @@ func Wire[I, O any](def *Station[I, O], deps ...DepOption[I]) AnyWiredNode {
 // Blueprint is a named workflow composed of wired task nodes.
 type Blueprint struct {
 	name  string
-	tasks []AnyWiredNode
-	index map[string]AnyWiredNode
+	tasks []AnyWiredStation
+	index map[string]AnyWiredStation
 }
 
 // New creates a Blueprint from the given wired nodes.
 // Pass bare *Station values for root nodes (no deps), or Wire(...) for nodes with deps.
 // Panics if any dependency is missing from the task list or if the graph has a cycle.
-func New(name string, tasks ...AnyWiredNode) *Blueprint {
-	index := make(map[string]AnyWiredNode, len(tasks))
+func New(name string, tasks ...AnyWiredStation) *Blueprint {
+	index := make(map[string]AnyWiredStation, len(tasks))
 	for _, t := range tasks {
 		index[t.Key()] = t
 	}
@@ -123,12 +138,12 @@ func New(name string, tasks ...AnyWiredNode) *Blueprint {
 func (b *Blueprint) Name() string { return b.name }
 
 // Node returns the wired node for the given task key, or nil if not found.
-func (b *Blueprint) Node(key string) AnyWiredNode { return b.index[key] }
+func (b *Blueprint) Node(key string) AnyWiredStation { return b.index[key] }
 
 // Tasks returns the ordered task nodes in this blueprint.
-func (b *Blueprint) Tasks() []AnyWiredNode { return b.tasks }
+func (b *Blueprint) Tasks() []AnyWiredStation { return b.tasks }
 
-func findCycle(tasks []AnyWiredNode) error {
+func findCycle(tasks []AnyWiredStation) error {
 	adj := make(map[string][]string, len(tasks))
 	for _, t := range tasks {
 		for _, dep := range t.depList() {
