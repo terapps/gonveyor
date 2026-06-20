@@ -6,8 +6,7 @@
 - `Seed` — explicit payload injection at manifest time, works alongside dep-based injection
 - `Fan` / `Seeds` — fan-out with static N or per-instance payloads
 - Manifest validation — error if a root task has no `Seed`
-- Heartbeat / distributed lock — 30s lease renewed every 15s
-- Race safety — conditional UPDATEs prevent double-execution
+- Heartbeat
 - Event sourcing — append-only `node_events` log; task status is a projection
 - Signals — external events (`Signal[T]`) that unblock waiting nodes via `SendSignal`
 
