@@ -32,6 +32,12 @@ func Merge[DepI, DepO, I any](from *blueprint.Station[DepI, DepO], fn func([]Dep
 	return blueprint.Merge(from, fn)
 }
 
+// After declares a pure ordering dependency: the upstream task must complete before this one
+// is dispatched, but its output is not fetched from the store.
+func After[I any](from blueprint.AnyDef) blueprint.DepOption[I] {
+	return blueprint.After[I](from)
+}
+
 // Split creates n parallel instances of def in the manifest.
 func Split(def blueprint.AnyDef, n int) blueprint.ManifestOption {
 	return blueprint.Split(def, n)

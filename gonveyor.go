@@ -2,6 +2,7 @@ package gonveyor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -72,9 +73,12 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 		}
 
 		if def, ok := o.defs[t.Key]; ok {
-			outputs, err := o.store.GatherDepResults(ctx, t.ID)
-			if err != nil {
-				return err
+			var outputs map[string][]json.RawMessage
+			if def.NeedsDepData() {
+				outputs, err = o.store.GatherDepResults(ctx, t.ID)
+				if err != nil {
+					return err
+				}
 			}
 
 			t.Payload, err = def.BuildInput(outputs)

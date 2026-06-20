@@ -12,6 +12,7 @@ type AnyDef interface {
 	Key() string
 	depList() []anyDep
 	BuildInput(outputs map[string][]json.RawMessage) (json.RawMessage, error)
+	NeedsDepData() bool
 }
 
 // Station is a typed task definition with input type I and output type O.
@@ -131,6 +132,18 @@ func Merge[DepI, DepO, I any](from *Station[DepI, DepO], fn func([]DepO, *I)) De
 func (d *Station[I, O]) Key() string       { return d.key }
 func (d *Station[I, O]) depList() []anyDep { return d.deps }
 
+// NeedsDepData reports whether any dependency transfers data to this task's input.
+// Returns false when all deps are After (ordering-only), allowing the orchestrator
+// to skip the GatherDepResults DB fetch entirely.
+func (d *Station[I, O]) NeedsDepData() bool {
+	for _, dep := range d.deps {
+		if _, ok := dep.(afterDep); !ok {
+			return true
+		}
+	}
+	return false
+}
+
 // BuildInput merges upstream outputs into the typed input for this task.
 func (d *Station[I, O]) BuildInput(outputs map[string][]json.RawMessage) (json.RawMessage, error) {
 	var input I
@@ -156,6 +169,16 @@ type anyDep interface {
 	isAll() bool
 	apply(outputs []json.RawMessage, inputPtr any) error
 }
+
+type afterDep struct{ key string }
+
+func (a afterDep) depKey() string                                   { return a.key }
+func (a afterDep) isAll() bool                                      { return false }
+func (a afterDep) apply(_ []json.RawMessage, _ any) error          { return nil }
+
+// After declares a pure ordering dependency on another task without transferring data.
+// The upstream task must complete before this task is dispatched, but its output is not fetched.
+func After[I any](from AnyDef) DepOption[I] { return afterDep{key: from.Key()} }
 
 type singleDep[DepI, DepO, I any] struct {
 	from *Station[DepI, DepO]
