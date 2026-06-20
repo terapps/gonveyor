@@ -97,6 +97,19 @@ Use `gonveyor.Merge` when you need **all outputs as a slice** (fan-in aggregatio
 
 > **Note:** when multiple `Intake`/`Merge` deps contribute to the same input struct, each must write to disjoint fields.
 
+### Ordering with `After`
+
+When a task must run after another but doesn't need its output:
+
+```go
+var Cleanup = blueprint.Define[CleanupInput, CleanupOutput]("cleanup",
+    gonveyor.After[CleanupInput](WeldAssembly),
+    gonveyor.After[CleanupInput](Inspect),
+)
+```
+
+`Cleanup` is dispatched only after both `WeldAssembly` and `Inspect` complete. No result is fetched from the store — the upstream DB read is skipped entirely.
+
 ---
 
 ## Worker side
