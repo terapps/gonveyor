@@ -4,6 +4,7 @@ package gonveyor
 import (
 	"context"
 
+	"github.com/terapps/gonveyor/events"
 	"github.com/terapps/gonveyor/ledger"
 	"github.com/terapps/gonveyor/transport"
 )
@@ -12,7 +13,7 @@ import (
 type Gonductor struct {
 	ledger         ledger.Ledger
 	dispatcher     transport.Dispatcher
-	eventPublisher EventPublisher
+	eventPublisher events.Publisher
 }
 
 // NewGonductor creates a Gonductor backed by the given ledger and dispatcher.

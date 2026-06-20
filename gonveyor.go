@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/terapps/gonveyor/blueprint"
+	"github.com/terapps/gonveyor/events"
 	"github.com/terapps/gonveyor/ledger"
 	"github.com/terapps/gonveyor/transport"
 )
@@ -22,7 +23,7 @@ type Gonveyor struct {
 	worker         transport.Worker
 	handlers       map[string]TaskHandler
 	blueprints     map[string]*blueprint.Blueprint
-	eventPublisher EventPublisher
+	eventPublisher events.Publisher
 }
 
 // NewGonveyor creates a new Gonveyor with the given ledger, dispatcher and worker.
