@@ -157,16 +157,48 @@ gc.Launch(ctx, manifest)
 
 ---
 
-## Worker options
+## Configuration
+
+### Queue
 
 ```go
-amqp.WithPrefetch(1)             // messages fetched ahead
-amqp.WithConcurrency(1)         // goroutines processing in parallel
-amqp.WithTag("worker-1")        // consumer tag
-amqp.WithRequeueFn(func(err error) bool {
-    return errors.Is(err, ErrTransient)
-})
+amqp.NewQueue("gonveyor",
+    amqp.WithDeadLetter("gonveyor.dlx"),             // recommended — without this, failed messages are dropped
+    amqp.WithExchange("events", amqp.ExchangeTopic), // named exchange (Direct or Topic)
+    amqp.WithRoutingKey("tasks.#"),                  // required for Topic exchanges
+)
 ```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithDeadLetter(exchange)` | — | Routes nacked messages to this exchange. Without it, RabbitMQ drops them permanently. |
+| `WithExchange(name, type)` | direct, unnamed | Named exchange — `ExchangeDirect` or `ExchangeTopic` |
+| `WithRoutingKey(key)` | — | Binding key, required for `ExchangeTopic` |
+
+### Worker
+
+```go
+conn.NewWorker(queue,
+    amqp.WithPrefetch(10),   // tune for your task duration — default of 1 is too conservative for production
+    amqp.WithConcurrency(4),
+    amqp.WithTag("worker-1"),
+    amqp.WithRequeueFn(func(err error) bool {
+        return errors.Is(err, ErrTransient)
+    }),
+    amqp.WithShutdownFn(func(ctx context.Context) (context.Context, context.CancelFunc) {
+        return signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
+    }),
+)
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithPrefetch(n)` | `1` | Messages prefetched per consumer. Default is safe but low-throughput — use `10`–`50` in production for short tasks. |
+| `WithConcurrency(n)` | `1` | Goroutines processing messages in parallel. Should match or be lower than prefetch. |
+| `WithTag(tag)` | — | AMQP consumer tag |
+| `WithRequeueFn(fn)` | always false | Returns true if a failed message should be requeued |
+| `WithRetryFn(fn)` | exponential backoff ×5 | Factory producing the reconnection retry strategy |
+| `WithShutdownFn(fn)` | `SIGTERM` | Returns a context cancelled on shutdown signals |
 
 ---
 
