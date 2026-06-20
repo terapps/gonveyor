@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/terapps/gonveyor/ledger"
 	bunblueprint "github.com/terapps/gonveyor/ledger/bun/blueprint"
@@ -48,11 +47,9 @@ func (l *Ledger) CreateBlueprint(ctx context.Context, manifest ledger.BlueprintM
 	var rootNodes []ledger.Node
 
 	err := bunutil.RunInTx(ctx, l.db, func(ctx context.Context) error {
-		now := time.Now()
 		bp := &bunblueprint.Blueprint{
-			ID:           manifest.Blueprint.ID,
-			Name:         manifest.Blueprint.Name,
-			DispatchedAt: &now,
+			ID:   manifest.Blueprint.ID,
+			Name: manifest.Blueprint.Name,
 		}
 		if err := l.blueprintRepo.Insert(ctx, bp); err != nil {
 			return err

@@ -23,7 +23,6 @@ type Blueprint struct {
 	Name         string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
-	DispatchedAt *time.Time
 }
 
 // Node is a persisted runtime instance of a workflow node within a blueprint.

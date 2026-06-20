@@ -3,7 +3,6 @@ CREATE TABLE blueprints (
     name          TEXT        NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    dispatched_at TIMESTAMPTZ
 );
 
 CREATE TABLE blueprint_nodes (

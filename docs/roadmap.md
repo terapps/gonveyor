@@ -59,6 +59,16 @@ gc.Schedule(ctx, manifest, gonveyor.Every(24*time.Hour))
 
 ---
 
+### Conditional branches *(à évaluer)*
+
+Route l'exécution vers une branche ou une autre selon l'output d'un node parent (`ConditionalWire`).
+
+Implique un nouvel état `node_skipped` et une cascade du skip aux descendants — changement non trivial dans la logique de `pending_deps`. Question ouverte : comportement d'un node final qui reçoit des deps mixtes (skipped + completed).
+
+Workaround actuel : handler no-op sur la branche non désirée.
+
+---
+
 ### Sub-blueprints *(à évaluer)*
 
 Compose blueprints by launching a child blueprint from within a task and waiting for its completion before continuing. Useful when a step is itself a complex workflow.
