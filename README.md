@@ -26,37 +26,86 @@ Define workflows as typed DAGs. Submit them. Let the conveyor run.
 
 ## Defining a workflow
 
+Stations are pure typed nodes. Dependencies are declared in `blueprint.New` via `Wire` — so the same station can be reused across multiple blueprints with different wiring.
+
 ```go
 import (
     "github.com/terapps/gonveyor"
     "github.com/terapps/gonveyor/blueprint"
 )
 
-// 1. Define typed task nodes
-var CutSteel = blueprint.Define[CutSteelInput, CutSteelOutput]("cut_steel")
+// 1. Define typed task nodes — no deps here
+var CutSteel    = blueprint.Define[CutSteelInput, CutSteelOutput]("cut_steel")
+var DrillHoles  = blueprint.Define[DrillHolesInput, DrillHolesOutput]("drill_holes")
+var MillSurface = blueprint.Define[MillSurfaceInput, MillSurfaceOutput]("mill_surface")
+var BendFrame   = blueprint.Define[BendFrameInput, BendFrameOutput]("bend_frame")
+var WeldAssembly = blueprint.Define[WeldAssemblyInput, WeldAssemblyOutput]("weld_assembly")
 
-var DrillHoles = blueprint.Define[DrillHolesInput, DrillHolesOutput]("drill_holes",
-    gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *DrillHolesInput) {
-        in.SheetID = o.SheetID
-    }),
-)
-
-var WeldAssembly = blueprint.Define[WeldAssemblyInput, WeldAssemblyOutput]("weld_assembly",
-    gonveyor.Intake(DrillHoles, func(o DrillHolesOutput, in *WeldAssemblyInput) {
-        in.HoleCount = o.HoleCount
-    }),
-    gonveyor.Intake(MillSurface, func(o MillSurfaceOutput, in *WeldAssemblyInput) {
-        in.Roughness = o.Roughness
-    }),
-)
-
-// 2. Assemble the blueprint
+// 2. Assemble the blueprint — wiring declared here
 //                 ┌──> drill_holes ───┐
 // cut_steel ──────┼──> mill_surface ──┼──> weld_assembly ──> ...
 //                 └──> bend_frame ────┘
 var SteelFrameDAG = blueprint.New("steel_frame_dag",
-    CutSteel, DrillHoles, MillSurface, BendFrame, WeldAssembly,
+    CutSteel,
+    blueprint.Wire(DrillHoles,
+        gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *DrillHolesInput) {
+            in.SheetID = o.SheetID
+        }),
+    ),
+    blueprint.Wire(MillSurface,
+        gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *MillSurfaceInput) {
+            in.SheetID = o.SheetID
+        }),
+    ),
+    blueprint.Wire(BendFrame,
+        gonveyor.Intake(CutSteel, func(o CutSteelOutput, in *BendFrameInput) {
+            in.SheetID = o.SheetID
+        }),
+    ),
+    blueprint.Wire(WeldAssembly,
+        gonveyor.Intake(DrillHoles, func(o DrillHolesOutput, in *WeldAssemblyInput) {
+            in.HoleCount = o.HoleCount
+        }),
+        gonveyor.Intake(MillSurface, func(o MillSurfaceOutput, in *WeldAssemblyInput) {
+            in.Roughness = o.Roughness
+        }),
+        gonveyor.Intake(BendFrame, func(o BendFrameOutput, in *WeldAssemblyInput) {
+            in.FrameID = o.FrameID
+        }),
+    ),
 )
+```
+
+Root nodes (no deps) are passed bare. `Wire` is only needed when declaring dependencies.
+
+### Reusing a station across blueprints
+
+Because wiring lives in `blueprint.New`, the same station can appear in multiple blueprints with different deps:
+
+```go
+var SendEmail = blueprint.Define[SendEmailInput, SendEmailOutput]("send_email")
+
+var QuotationFlow = blueprint.New("quotation_flow",
+    // ...
+    blueprint.Wire(SendEmail,
+        gonveyor.Intake(CreateContract, func(o CreateContractOutput, in *SendEmailInput) {
+            in.Template = "contract_created"
+            in.ContractID = o.ContractID
+        }),
+    ),
+)
+
+var ImpayeFlow = blueprint.New("impaye_flow",
+    ContractImpaye,
+    blueprint.Wire(SendEmail,
+        gonveyor.After[SendEmailInput](ContractImpaye),
+    ),
+)
+
+// One handler for both flows
+g.RegisterBlueprint(QuotationFlow)
+g.RegisterBlueprint(ImpayeFlow)
+g.RegisterHandler(SendEmail, gonveyor.Handle(SendEmail, sendEmailHandler))
 ```
 
 ### Fan-out with `Split`
@@ -77,19 +126,6 @@ cut_steel ──┬──> drill_holes/0 ──┐
 ```
 
 Downstream tasks wait for **all** split instances before unblocking.
-
-### Seeding a task with `Seed`
-
-Every task without dependencies must be explicitly seeded at manifest time. `Seed` also works on any task that needs ambient context (e.g. a workflow-level ID) that doesn't flow naturally through the dep graph:
-
-```go
-manifest, _ := bp.Manifest(
-    gonveyor.Seed(ListFiles, ListFilesInput{GameVersionID: "v1"}),
-    gonveyor.Seed(ProcessFile, ProcessFileInput{GameVersionID: "v1"}),
-)
-```
-
-If `ProcessFile` also has `Intake` deps, their fields are merged on top of the seed at dispatch time — `Seed` and dep-based injection coexist on the same task. `Manifest` returns an error if any root task is missing a `Seed`.
 
 ### Fan-out with `SplitWith`
 
@@ -113,7 +149,7 @@ N is `len(files)`. Each instance is seeded with its own payload at manifest crea
 When a downstream task needs to collect N outputs into a slice:
 
 ```go
-var Inspect = blueprint.Define[InspectInput, InspectOutput]("inspect",
+blueprint.Wire(Inspect,
     gonveyor.Merge(DrillHoles, func(outputs []DrillHolesOutput, in *InspectInput) {
         ids := make([]string, len(outputs))
         for i, o := range outputs { ids[i] = o.HoleID }
@@ -127,18 +163,31 @@ Use `gonveyor.Merge` when you need **all outputs as a slice** (fan-in aggregatio
 
 > **Note:** when multiple `Intake`/`Merge` deps contribute to the same input struct, each must write to disjoint fields.
 
+### Seeding a task with `Seed`
+
+Every root task (no deps) must be explicitly seeded at manifest time. `Seed` also works on any downstream task that needs ambient context that doesn't flow naturally through the dep graph — fields set by `Seed` are overlaid by `Intake`/`Merge` at dispatch time:
+
+```go
+manifest, _ := bp.Manifest(
+    gonveyor.Seed(ListFiles, ListFilesInput{GameVersionID: "v1"}),
+    gonveyor.Seed(ProcessFile, ProcessFileInput{GameVersionID: "v1"}),
+)
+```
+
+`Manifest` returns an error if any root task is missing a `Seed`.
+
 ### Ordering with `After`
 
 When a task must run after another but doesn't need its output:
 
 ```go
-var Cleanup = blueprint.Define[CleanupInput, CleanupOutput]("cleanup",
+blueprint.Wire(Cleanup,
     gonveyor.After[CleanupInput](WeldAssembly),
     gonveyor.After[CleanupInput](Inspect),
 )
 ```
 
-`Cleanup` is dispatched only after both `WeldAssembly` and `Inspect` complete. No result is fetched from the store — the upstream DB read is skipped entirely.
+`Cleanup` is dispatched only after both complete. No result is fetched from the store — the upstream DB read is skipped entirely.
 
 ---
 
@@ -154,6 +203,9 @@ dispatcher, _ := conn.NewDispatcher(queue)
 worker, _ := conn.NewWorker(queue)
 
 g := gonveyor.NewGonveyor(bunstore.New(db), dispatcher, worker)
+
+// Register blueprint wiring so the worker knows how to build task inputs
+g.RegisterBlueprint(SteelFrameDAG)
 
 g.RegisterHandler(DrillHoles, gonveyor.Handle(DrillHoles,
     func(ctx context.Context, in DrillHolesInput) (DrillHolesOutput, error) {
@@ -172,7 +224,7 @@ When a handler completes, gonveyor automatically:
 
 **Race safety:** transitions are conditional UPDATEs (`WHERE status = 'pending'` / `WHERE status = 'dispatched'`). If two workers race on the same task, only one wins — the other bails silently. A heartbeat goroutine renews a 30s lease every 15s while a task is running; expired leases are detectable via the `locked_until` column for manual recovery.
 
-**Handler context:** handlers receive a non-cancellable context (`context.WithoutCancel`). Shutdown signals do not interrupt a running task — the worker waits for the handler to return. Do not rely on `ctx.Done()` inside handlers.
+**Handler context:** handlers receive a non-cancellable context. Shutdown signals do not interrupt a running task — the worker waits for the handler to return. Do not rely on `ctx.Done()` inside handlers.
 
 ---
 
@@ -248,15 +300,15 @@ conn.NewWorker(queue,
 
 ```
 gonveyor/
-├── blueprint/         # Typed DAG DSL — Define, New, AnyDef, Station
-│   ├── blueprint.go   # Type definitions, Intake, Merge
-│   └── manifest.go    # Manifest building, Split
+├── blueprint/         # Typed DAG DSL — Define, Wire, New, Station
+│   ├── blueprint.go   # Type definitions, Wire, Intake, Merge, After
+│   └── manifest.go    # Manifest building, Seed, Split, SplitWith
 ├── transport/         # Transport interfaces + AMQP implementation
 │   └── amqp/          # AMQP worker and dispatcher
 ├── store/             # Persistence interfaces
 │   └── bun/           # PostgreSQL implementation (bun ORM)
 ├── examples/
-│   ├── factory/       # Worker process — registers handlers
+│   ├── factory/       # Worker process — registers blueprints and handlers
 │   └── publisher/     # Producer process — submits workflows
 └── scripts/
     └── migrations/    # PostgreSQL schema
