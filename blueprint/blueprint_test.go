@@ -284,6 +284,72 @@ func TestBuildInput_Merge_AggregatesAll(t *testing.T) {
 	assert.Equal(t, []string{"x", "y", "z"}, got.Values)
 }
 
+// --- After ---
+
+func TestAfter_CreatesDepEdge(t *testing.T) {
+	a := blueprint.Define[in1, out1]("a")
+	b := blueprint.Define[in2, out2]("b",
+		blueprint.After[in2](a),
+	)
+	bp := blueprint.New("bp", a, b)
+	m := mustManifest(t, bp, in1{})
+
+	aID := taskByKey(m, "a")[0].ID
+	bID := taskByKey(m, "b")[0].ID
+
+	var found bool
+	for _, d := range m.Dependencies {
+		if d.TaskID == bID && d.DependsOnID == aID {
+			found = true
+		}
+	}
+	assert.True(t, found, "After should create a dependency edge")
+}
+
+func TestAfter_NotInitialTask(t *testing.T) {
+	a := blueprint.Define[in1, out1]("a")
+	b := blueprint.Define[in2, out2]("b",
+		blueprint.After[in2](a),
+	)
+	bp := blueprint.New("bp", a, b)
+	m := mustManifest(t, bp, in1{})
+
+	pending := m.PendingTasks()
+	require.Len(t, pending, 1)
+	assert.Equal(t, "a", pending[0].Key)
+}
+
+func TestAfter_NeedsDepData_False(t *testing.T) {
+	a := blueprint.Define[in1, out1]("a")
+	b := blueprint.Define[in2, out2]("b",
+		blueprint.After[in2](a),
+	)
+	assert.False(t, b.NeedsDepData())
+}
+
+func TestAfter_NeedsDepData_TrueWithIntake(t *testing.T) {
+	a := blueprint.Define[in1, out1]("a")
+	b := blueprint.Define[in2, out2]("b",
+		blueprint.After[in2](a),
+		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
+	)
+	assert.True(t, b.NeedsDepData())
+}
+
+func TestAfter_BuildInput_NoData(t *testing.T) {
+	a := blueprint.Define[in1, out1]("a")
+	b := blueprint.Define[in2, out2]("b",
+		blueprint.After[in2](a),
+	)
+
+	result, err := b.BuildInput(nil)
+	require.NoError(t, err)
+
+	var got in2
+	require.NoError(t, json.Unmarshal(result, &got))
+	assert.Equal(t, in2{}, got)
+}
+
 func TestBuildInput_Merge_EmptyOutputs(t *testing.T) {
 	type inSlice struct{ Values []string }
 	type outVal struct{ V string }
