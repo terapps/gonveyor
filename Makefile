@@ -1,33 +1,25 @@
-MODULES := . examples/shared examples/factory examples/publisher
 REPORT_DIR ?= $(CURDIR)/reports
 
 .PHONY: tidy build lint test test-ci fmt clean
 
 tidy:
-	go work use $(MODULES)
-	@for m in $(MODULES); do echo "→ tidy $$m" && cd $$m && go mod tidy && cd -; done
+	go mod tidy
 
 build:
-	@for m in $(MODULES); do echo "→ build $$m" && (cd $$m && go build ./...); done
+	go build ./...
 
 lint:
-	@for m in $(MODULES); do echo "→ lint $$m" && (cd $$m && golangci-lint run ./...); done
+	golangci-lint run ./...
 
 test:
-	@for m in $(MODULES); do echo "→ test $$m" && (cd $$m && go test ./...); done
+	go test ./...
 
 fmt:
-	@for m in $(MODULES); do echo "→ fmt $$m" && (cd $$m && gofmt -w .); done
+	gofmt -w .
 
 test-ci:
 	mkdir -p $(REPORT_DIR)
-	@for m in $(MODULES); do \
-		name=$$(echo $$m | tr './' '__'); \
-		echo "→ test-ci $$m" && (cd $$m && gotestsum --junitfile $(REPORT_DIR)/$$name.xml -- ./...); \
-	done
+	gotestsum --junitfile $(REPORT_DIR)/gonveyor.xml -- ./...
 
 clean:
 	go clean -testcache
-
-run:
-	go run ./examples/$(example)/...
