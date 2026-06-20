@@ -54,3 +54,9 @@ CREATE INDEX idx_node_events_node_id      ON node_events (node_id, type);
 CREATE INDEX idx_node_events_blueprint_id ON node_events (blueprint_id);
 CREATE INDEX idx_node_heartbeats_node_id  ON node_heartbeats (node_id);
 CREATE INDEX idx_node_heartbeats_emitted  ON node_heartbeats (emitted_at);
+
+-- UI indexes
+CREATE INDEX idx_blueprints_created_at ON blueprints (created_at DESC, id DESC);
+CREATE INDEX idx_node_events_node_id_emitted ON node_events (node_id, emitted_at DESC) INCLUDE (type);
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX idx_blueprints_name_trgm ON blueprints USING gin (name gin_trgm_ops);
