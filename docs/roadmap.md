@@ -46,6 +46,12 @@ var Process = blueprint.Define[ProcessInput, ProcessOutput]("process",
 )
 ```
 
+### Per-station routing keys
+
+Route tasks to different queues based on the station definition (e.g. `SendEmail` → `tasks.email`, `GenerateDocument` → `tasks.document`).
+
+Routing key defined at the station level (compile-time), resolved at dispatch time from a `station_key → routing_key` registry built when registering blueprints — no schema change needed. Requires a topic exchange and one worker per queue.
+
 ### UI
 
 Web dashboard for monitoring blueprint instances and task state — the gonveyor equivalent of Asynqmon or the Temporal Web UI.
