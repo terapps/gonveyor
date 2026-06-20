@@ -25,7 +25,7 @@ func (b *Blueprint) Manifest(input any, opts ...ManifestOption) (store.Blueprint
 		return store.BlueprintManifest{}, err
 	}
 
-	cfg := &manifestCfg{splits: make(map[string]int)}
+	cfg := &manifestCfg{splits: make(map[string]int), payloads: make(map[string][]json.RawMessage)}
 	for _, opt := range opts {
 		opt.applyManifest(cfg)
 	}
@@ -51,9 +51,11 @@ func (b *Blueprint) Manifest(input any, opts ...ManifestOption) (store.Blueprint
 		myIDs := taskIDs[def.Key()]
 		isRoot := len(def.depList()) == 0
 
-		for _, id := range myIDs {
+		for i, id := range myIDs {
 			taskPayload := json.RawMessage(nil)
-			if isRoot {
+			if perInstance := cfg.payloads[def.Key()]; perInstance != nil {
+				taskPayload = perInstance[i]
+			} else if isRoot {
 				taskPayload = payload
 			}
 
@@ -98,7 +100,8 @@ func (b *Blueprint) Manifest(input any, opts ...ManifestOption) (store.Blueprint
 }
 
 type manifestCfg struct {
-	splits map[string]int
+	splits   map[string]int
+	payloads map[string][]json.RawMessage
 }
 
 type splitOpt struct {
@@ -108,4 +111,28 @@ type splitOpt struct {
 
 func (s splitOpt) applyManifest(cfg *manifestCfg) {
 	cfg.splits[s.key] = s.n
+}
+
+type splitWithOpt struct {
+	key      string
+	payloads []json.RawMessage
+}
+
+func (s splitWithOpt) applyManifest(cfg *manifestCfg) {
+	cfg.splits[s.key] = len(s.payloads)
+	cfg.payloads[s.key] = s.payloads
+}
+
+// SplitWith creates N parallel instances of def, each seeded with a per-item payload.
+// The mapping fn receives one item from items and a pointer to the task input to fill.
+// Unlike Split, N is len(items) and each instance starts with distinct payload data.
+func SplitWith[I, O any, T any](def *Station[I, O], items []T, fn func(T, *I)) ManifestOption {
+	payloads := make([]json.RawMessage, len(items))
+	for i, item := range items {
+		var input I
+		fn(item, &input)
+		raw, _ := json.Marshal(input)
+		payloads[i] = raw
+	}
+	return splitWithOpt{key: def.Key(), payloads: payloads}
 }

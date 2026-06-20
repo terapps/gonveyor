@@ -11,7 +11,7 @@ import (
 type AnyDef interface {
 	Key() string
 	depList() []anyDep
-	BuildInput(outputs map[string][]json.RawMessage) (json.RawMessage, error)
+	BuildInput(base json.RawMessage, outputs map[string][]json.RawMessage) (json.RawMessage, error)
 	NeedsDepData() bool
 }
 
@@ -145,8 +145,15 @@ func (d *Station[I, O]) NeedsDepData() bool {
 }
 
 // BuildInput merges upstream outputs into the typed input for this task.
-func (d *Station[I, O]) BuildInput(outputs map[string][]json.RawMessage) (json.RawMessage, error) {
+// If base is non-nil it is unmarshalled first, allowing SplitWith payloads to
+// serve as the starting point before Intake/Merge deps overlay their fields.
+func (d *Station[I, O]) BuildInput(base json.RawMessage, outputs map[string][]json.RawMessage) (json.RawMessage, error) {
 	var input I
+	if base != nil {
+		if err := json.Unmarshal(base, &input); err != nil {
+			return nil, fmt.Errorf("unmarshal base payload: %w", err)
+		}
+	}
 
 	for _, dep := range d.deps {
 		outs := outputs[dep.depKey()]

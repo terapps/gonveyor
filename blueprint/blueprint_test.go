@@ -196,7 +196,7 @@ func TestBuildInput_Intake_SingleDep(t *testing.T) {
 	raw, err := json.Marshal(out1{A: "hello"})
 	require.NoError(t, err)
 
-	result, err := b.BuildInput(map[string][]json.RawMessage{"a": {raw}})
+	result, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {raw}})
 	require.NoError(t, err)
 
 	var got in2
@@ -216,7 +216,7 @@ func TestBuildInput_Intake_ZeroValue(t *testing.T) {
 	raw, err := json.Marshal(outBool{Active: false})
 	require.NoError(t, err)
 
-	result, err := b.BuildInput(map[string][]json.RawMessage{"a": {raw}})
+	result, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {raw}})
 	require.NoError(t, err)
 
 	var got inBool
@@ -237,7 +237,7 @@ func TestBuildInput_Intake_MultiDep_DisjointFields(t *testing.T) {
 	rawA, _ := json.Marshal(out1{A: "val_a"})
 	rawB, _ := json.Marshal(out2{})
 
-	result, err := c.BuildInput(map[string][]json.RawMessage{"a": {rawA}, "b": {rawB}})
+	result, err := c.BuildInput(nil, map[string][]json.RawMessage{"a": {rawA}, "b": {rawB}})
 	require.NoError(t, err)
 
 	var got in3
@@ -253,7 +253,7 @@ func TestBuildInput_Intake_MultipleOutputs_Error(t *testing.T) {
 	)
 
 	raw, _ := json.Marshal(out1{A: "x"})
-	_, err := b.BuildInput(map[string][]json.RawMessage{"a": {raw, raw}})
+	_, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {raw, raw}})
 	assert.ErrorContains(t, err, "Merge")
 }
 
@@ -276,12 +276,74 @@ func TestBuildInput_Merge_AggregatesAll(t *testing.T) {
 	r2, _ := json.Marshal(outVal{V: "y"})
 	r3, _ := json.Marshal(outVal{V: "z"})
 
-	result, err := b.BuildInput(map[string][]json.RawMessage{"a": {r1, r2, r3}})
+	result, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {r1, r2, r3}})
 	require.NoError(t, err)
 
 	var got inSlice
 	require.NoError(t, json.Unmarshal(result, &got))
 	assert.Equal(t, []string{"x", "y", "z"}, got.Values)
+}
+
+// --- SplitWith ---
+
+func TestSplitWith_CreatesNInstances(t *testing.T) {
+	type item struct{ ID string }
+	a := blueprint.Define[in1, out1]("a")
+	b := blueprint.Define[in2, out2]("b")
+	bp := blueprint.New("bp", a, b)
+
+	items := []item{{"x"}, {"y"}, {"z"}}
+	m := mustManifest(t, bp, in1{}, blueprint.SplitWith(b, items, func(it item, in *in2) {
+		in.A = it.ID
+	}))
+
+	bTasks := taskByKey(m, "b")
+	assert.Len(t, bTasks, 3)
+}
+
+func TestSplitWith_PerInstancePayload(t *testing.T) {
+	type item struct{ ID string }
+	a := blueprint.Define[in1, out1]("a")
+	b := blueprint.Define[in2, out2]("b")
+	bp := blueprint.New("bp", a, b)
+
+	items := []item{{"x"}, {"y"}, {"z"}}
+	m := mustManifest(t, bp, in1{}, blueprint.SplitWith(b, items, func(it item, in *in2) {
+		in.A = it.ID
+	}))
+
+	bTasks := taskByKey(m, "b")
+	require.Len(t, bTasks, 3)
+
+	got := make([]string, 3)
+	for i, task := range bTasks {
+		var in in2
+		require.NoError(t, json.Unmarshal(task.Payload, &in))
+		got[i] = in.A
+	}
+	assert.ElementsMatch(t, []string{"x", "y", "z"}, got)
+}
+
+func TestBuildInput_SplitWith_BasePreservedWithIntake(t *testing.T) {
+	type mixed struct {
+		FromItem string
+		FromDep  string
+	}
+	a := blueprint.Define[in1, out1]("a")
+	b := blueprint.Define[mixed, out2]("b",
+		blueprint.Intake(a, func(o out1, in *mixed) { in.FromDep = o.A }),
+	)
+
+	base, _ := json.Marshal(mixed{FromItem: "item-seed"})
+	raw, _ := json.Marshal(out1{A: "dep-val"})
+
+	result, err := b.BuildInput(base, map[string][]json.RawMessage{"a": {raw}})
+	require.NoError(t, err)
+
+	var got mixed
+	require.NoError(t, json.Unmarshal(result, &got))
+	assert.Equal(t, "item-seed", got.FromItem)
+	assert.Equal(t, "dep-val", got.FromDep)
 }
 
 // --- After ---
@@ -342,7 +404,7 @@ func TestAfter_BuildInput_NoData(t *testing.T) {
 		blueprint.After[in2](a),
 	)
 
-	result, err := b.BuildInput(nil)
+	result, err := b.BuildInput(nil, nil)
 	require.NoError(t, err)
 
 	var got in2
@@ -363,7 +425,7 @@ func TestBuildInput_Merge_EmptyOutputs(t *testing.T) {
 		}),
 	)
 
-	result, err := b.BuildInput(map[string][]json.RawMessage{"a": {}})
+	result, err := b.BuildInput(nil, map[string][]json.RawMessage{"a": {}})
 	require.NoError(t, err)
 
 	var got inSlice

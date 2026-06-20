@@ -42,3 +42,8 @@ func After[I any](from blueprint.AnyDef) blueprint.DepOption[I] {
 func Split(def blueprint.AnyDef, n int) blueprint.ManifestOption {
 	return blueprint.Split(def, n)
 }
+
+// SplitWith creates N parallel instances of def, each seeded with a per-item payload.
+func SplitWith[I, O any, T any](def *blueprint.Station[I, O], items []T, fn func(T, *I)) blueprint.ManifestOption {
+	return blueprint.SplitWith(def, items, fn)
+}

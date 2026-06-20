@@ -81,7 +81,7 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 				}
 			}
 
-			t.Payload, err = def.BuildInput(outputs)
+			t.Payload, err = def.BuildInput(t.Payload, outputs)
 			if err != nil {
 				return err
 			}

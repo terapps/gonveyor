@@ -20,7 +20,9 @@ type fakeDef struct {
 
 func (f *fakeDef) Key() string                                                      { return f.key }
 func (f *fakeDef) depList() []anyDep                                                { return f.deps }
-func (f *fakeDef) BuildInput(map[string][]json.RawMessage) (json.RawMessage, error) { return nil, nil }
+func (f *fakeDef) BuildInput(_ json.RawMessage, _ map[string][]json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
+}
 func (f *fakeDef) NeedsDepData() bool                                               { return false }
 
 func TestFindCycle_NoCycle(t *testing.T) {
