@@ -18,9 +18,10 @@ Define workflows as typed DAGs. Submit them. Let the conveyor run.
 |------|------|
 | **Blueprint** | A named workflow: the DAG of task definitions |
 | **Station** | A typed task node — input type `I`, output type `O` |
+| **Signal** | A gateway node activated by an external event (human approval, webhook…) |
 | **Manifest** | A blueprint instantiated with concrete payloads — ready to persist and dispatch |
 | **Gonveyor** | The worker side: consumes tasks, runs handlers, dispatches next tasks |
-| **Gonductor** | The producer side: submits manifests and dispatches initial tasks |
+| **Gonductor** | The producer side: submits manifests and signals external events |
 
 ---
 
@@ -192,11 +193,45 @@ blueprint.Wire(Cleanup,
 
 `Cleanup` is dispatched only after both complete. No result is fetched from the store — the upstream DB read is skipped entirely.
 
+### Gateway nodes with `Signal`
+
+When a downstream task must wait for an external event (human approval, webhook, third-party callback):
+
+```go
+var AwaitApproval = blueprint.Signal[ApprovalPayload]("await_approval")
+
+var PublishFlow = blueprint.New("publish_flow",
+    PrepareRelease,
+    AwaitApproval, // gateway — never dispatched to the queue
+    blueprint.Wire(PublishRelease,
+        gonveyor.After[PublishInput](PrepareRelease),
+        gonveyor.Intake(AwaitApproval, func(p ApprovalPayload, in *PublishInput) {
+            in.ApprovedBy = p.UserID
+        }),
+    ),
+)
+```
+
+`Signal[T]` is a station with `node_type = "signal"`. It is never dispatched to AMQP — it acts as a held gate in the DAG. Downstream nodes remain blocked until `SendSignal` is called.
+
+On the producer side:
+
+```go
+gc.SendSignal(ctx, blueprintID, "await_approval", ApprovalPayload{UserID: "alice"})
+```
+
+This atomically completes the signal node, decrements `pending_deps` on its successors, and dispatches those that unblock — exactly like completing a regular task.
+
 ---
 
 ## Worker side
 
 ```go
+import (
+    bunledger "github.com/terapps/gonveyor/ledger/bun"
+    // ...
+)
+
 sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN("postgres://...")))
 db := bun.NewDB(sqldb, pgdialect.New())
 
@@ -205,7 +240,7 @@ queue, _ := amqp.NewQueue("gonveyor", amqp.WithDeadLetter("gonveyor.dlx"))
 dispatcher, _ := conn.NewDispatcher(queue)
 worker, _ := conn.NewWorker(queue)
 
-g := gonveyor.NewGonveyor(bunstore.New(db), dispatcher, worker)
+g := gonveyor.NewGonveyor(bunledger.New(db), dispatcher, worker)
 
 // Register blueprint wiring so the worker knows how to build task inputs
 g.RegisterBlueprint(VideoProcessing)
@@ -221,12 +256,12 @@ g.Listen(ctx)
 ```
 
 When a handler completes, gonveyor automatically:
-1. Persists the result
+1. Persists the result as a `node_completed` event
 2. Resolves which tasks are now unblocked
 3. Builds their typed input from upstream outputs
 4. Dispatches them to the queue
 
-**Race safety:** transitions are conditional UPDATEs (`WHERE status = 'pending'` / `WHERE status = 'dispatched'`). If two workers race on the same task, only one wins — the other bails silently. A heartbeat goroutine renews a 30s lease every 15s while a task is running; expired leases are detectable via the `locked_until` column for manual recovery.
+**Race safety:** claiming a task atomically inserts a `node_started` event. If two workers race on the same task, only one wins the insert — the other bails silently. A heartbeat goroutine upserts a `node_heartbeats` row every 15s while a task is running; staleness is detectable via `last_seen_at` for external monitoring.
 
 **Handler context:** handlers receive a non-cancellable context. Shutdown signals do not interrupt a running task — the worker waits for the handler to return. Do not rely on `ctx.Done()` inside handlers.
 
@@ -235,6 +270,11 @@ When a handler completes, gonveyor automatically:
 ## Producer side
 
 ```go
+import (
+    bunledger "github.com/terapps/gonveyor/ledger/bun"
+    // ...
+)
+
 sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN("postgres://...")))
 db := bun.NewDB(sqldb, pgdialect.New())
 
@@ -242,7 +282,7 @@ conn, _ := amqp.Dial("amqp://...")
 queue, _ := amqp.NewQueue("gonveyor", amqp.WithDeadLetter("gonveyor.dlx"))
 dispatcher, _ := conn.NewDispatcher(queue)
 
-gc := gonveyor.NewGonductor(bunstore.New(db), dispatcher)
+gc := gonveyor.NewGonductor(bunledger.New(db), dispatcher)
 
 manifest, _ := VideoProcessing.Manifest(
     gonveyor.Seed(DownloadAsset, DownloadInput{AssetID: "asset-42", SourceURL: "s3://..."}),
@@ -251,7 +291,7 @@ manifest, _ := VideoProcessing.Manifest(
 gc.Launch(ctx, manifest)
 ```
 
-`Launch` persists the manifest and dispatches the initial tasks in one call. Use `Submit` + `DispatchBlueprint` separately if you need control over timing.
+`Launch` persists the manifest and dispatches the initial tasks atomically.
 
 ---
 
@@ -304,13 +344,17 @@ conn.NewWorker(queue,
 
 ```
 gonveyor/
-├── blueprint/         # Typed DAG DSL — Define, Wire, New, Station
+├── blueprint/         # Typed DAG DSL — Define, Wire, Signal, New, Station
 │   ├── blueprint.go   # Type definitions, Wire, Intake, Merge, After
 │   └── manifest.go    # Manifest building, Seed, Split, SplitWith
+├── ledger/            # Persistence interface (ledger.Ledger) + domain types
+│   └── bun/           # PostgreSQL implementation (bun ORM)
+│       ├── ledger.go  # Ledger struct — orchestrates repo calls, owns transactions
+│       ├── blueprint/ # Blueprint insert
+│       ├── node/      # Node queries (insert, deps, unblocked)
+│       └── event/     # Append-only node_events writes + GatherDepResults
 ├── transport/         # Transport interfaces + AMQP implementation
 │   └── amqp/          # AMQP worker and dispatcher
-├── store/             # Persistence interfaces
-│   └── bun/           # PostgreSQL implementation (bun ORM)
 ├── examples/
 │   ├── factory/       # Worker process — registers blueprints and handlers
 │   └── publisher/     # Producer process — submits workflows
@@ -332,7 +376,18 @@ Workflows are typically declared as package-level `var`, so invalid graphs are c
 
 ## Schema
 
-Three tables: `blueprints`, `blueprint_tasks`, `blueprint_task_dependencies`.
+Five tables: `blueprints`, `blueprint_nodes`, `blueprint_node_dependencies`, `node_events`, `node_heartbeats`.
+
+Node state is event-sourced — there is no mutable status column. Events are appended:
+
+| Event type | When |
+|------------|------|
+| `node_dispatched` | node sent to the queue (root nodes at `CreateBlueprint`, downstream nodes when unblocked) |
+| `node_started` | worker claimed the node (`Claim`) — unique, used as a distributed lock |
+| `node_completed` | handler returned successfully — unique via partial index, guarantees idempotency |
+| `node_failed` | handler returned an error |
+
+Heartbeats are upserted separately in `node_heartbeats` (one row per node, `last_seen_at` updated on each tick).
 
 Run `scripts/migrations/001_init.sql` to initialise (auto-applied by docker compose on first start).
 
@@ -375,7 +430,7 @@ make test    # unit tests (no external deps)
 make lint    # golangci-lint across all modules
 ```
 
-Integration tests (`store/bun`) require PostgreSQL — start it first:
+Integration tests (`ledger/bun`) require PostgreSQL — start it first:
 
 ```bash
 docker compose up -d
