@@ -150,11 +150,10 @@ manifest, _ := SteelFrameDAG.Manifest(CutSteelInput{
     SheetSize: "1200x800",
 })
 
-gc.Submit(ctx, manifest)
-gc.Dispatch(ctx, manifest.PendingTasks())
+gc.Launch(ctx, manifest)
 ```
 
-`Submit` persists the full manifest. `Dispatch` publishes the initial tasks (those with no dependencies).
+`Launch` persists the manifest and dispatches the initial tasks in one call. Use `Submit` + `DispatchBlueprint` separately if you need control over timing.
 
 ---
 
