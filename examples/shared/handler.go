@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/terapps/gonveyor/store"
-	"github.com/terapps/gonveyor/transport"
+	gonveyor "github.com/terapps/gonveyor"
+	"github.com/terapps/gonveyor/ledger"
 )
 
-// DebugHandler returns a HandlerFunc that logs every field of the incoming task.
-func DebugHandler() transport.HandlerFunc {
-	return func(_ context.Context, task store.Task) (any, error) {
+// DebugHandler returns a TaskHandler that logs every field of the incoming task.
+func DebugHandler() gonveyor.TaskHandler {
+	return func(_ context.Context, task ledger.Task) (any, error) {
 		attrs := payloadAttrs(task.Payload)
 
 		slog.Info("task received", append([]any{"id", task.ID, "key", task.Key}, attrs...)...)

@@ -1,5 +1,5 @@
-// Package store defines the persistence interfaces for gonveyor.
-package store
+// Package ledger defines the persistence interfaces for gonveyor.
+package ledger
 
 import (
 	"context"
@@ -7,19 +7,7 @@ import (
 	"time"
 )
 
-// TaskStatus represents the lifecycle state of a task.
-type TaskStatus string
-
-// Task lifecycle statuses.
-const (
-	TaskStatusPending    TaskStatus = "pending"
-	TaskStatusDispatched TaskStatus = "dispatched"
-	TaskStatusRunning    TaskStatus = "running"
-	TaskStatusSuccess    TaskStatus = "success"
-	TaskStatusFailed     TaskStatus = "failed"
-)
-
-// Blueprint is the domain representation of a workflow definition.
+// Blueprint is the domain representation of a workflow instance.
 type Blueprint struct {
 	ID           string
 	Name         string
@@ -34,10 +22,7 @@ type Task struct {
 	BlueprintID   string
 	BlueprintName string
 	Key           string
-	Status        TaskStatus
 	Payload       []byte
-	Result        []byte
-	Error         string
 }
 
 // TaskDependency records that a task must complete before another can start.
@@ -53,39 +38,37 @@ type BlueprintManifest struct {
 	Dependencies []TaskDependency
 }
 
-// PendingTasks returns tasks that have no dependencies and can be dispatched immediately.
-func (m BlueprintManifest) PendingTasks() []Task {
+// RootTasks returns tasks that have no incoming dependencies.
+func (m BlueprintManifest) RootTasks() []Task {
 	blocked := make(map[string]struct{}, len(m.Dependencies))
 	for _, d := range m.Dependencies {
 		blocked[d.TaskID] = struct{}{}
 	}
-
-	pending := make([]Task, 0)
-
+	out := make([]Task, 0)
 	for _, t := range m.Tasks {
 		if _, ok := blocked[t.ID]; !ok {
-			pending = append(pending, t)
+			out = append(out, t)
 		}
 	}
-
-	return pending
+	return out
 }
 
-// Store is the unified persistence interface consumed by the orchestrator.
-type Store interface {
-	CreateBlueprint(ctx context.Context, manifest BlueprintManifest) error
+// Ledger is the unified persistence interface consumed by the orchestrator.
+// CreateBlueprint atomically persists the manifest and dispatches root tasks,
+// returning them for immediate publication to the message queue.
+// SetSuccess atomically records completion, decrements downstream pending_deps,
+// dispatches newly unblocked tasks, and returns them for publication.
+type Ledger interface {
+	CreateBlueprint(ctx context.Context, manifest BlueprintManifest) ([]Task, error)
 	GetBlueprint(ctx context.Context, blueprintID string) (BlueprintManifest, error)
 	ListBlueprints(ctx context.Context) ([]Blueprint, error)
-	SetBlueprintDispatched(ctx context.Context, blueprintID string) error
 
 	GetTask(ctx context.Context, taskID string) (Task, error)
 	SetDispatched(ctx context.Context, taskID string) (bool, error)
 	SetRunning(ctx context.Context, taskID string) (bool, error)
-	SetSuccess(ctx context.Context, taskID string, result any) (bool, error)
+	SetSuccess(ctx context.Context, taskID string, result any) (bool, []Task, error)
 	SetFailed(ctx context.Context, taskID string, err error) error
 	RenewLock(ctx context.Context, taskID string) error
 
-	Pending(ctx context.Context, blueprintID string) ([]Task, error)
-	Next(ctx context.Context, completedTaskID string) ([]Task, error)
 	GatherDepResults(ctx context.Context, taskID string) (map[string][]json.RawMessage, error)
 }

@@ -9,24 +9,24 @@ import (
 	gonveyor "github.com/terapps/gonveyor"
 	"github.com/terapps/gonveyor/examples/factory/defs"
 	"github.com/terapps/gonveyor/examples/shared"
-	"github.com/terapps/gonveyor/store"
+	"github.com/terapps/gonveyor/ledger"
 	"github.com/terapps/gonveyor/transport/amqp"
 )
 
-var workflows = map[string]func() (store.BlueprintManifest, error){
-	"assembly_line": func() (store.BlueprintManifest, error) {
+var workflows = map[string]func() (ledger.BlueprintManifest, error){
+	"assembly_line": func() (ledger.BlueprintManifest, error) {
 		return defs.AssemblyLine.Manifest(gonveyor.Seed(defs.DrillPart, defs.DrillInput{OrderID: "order-1", PartCode: "DR-42"}))
 	},
-	"assembly_line_split": func() (store.BlueprintManifest, error) {
+	"assembly_line_split": func() (ledger.BlueprintManifest, error) {
 		return defs.AssemblyLine.Manifest(
 			gonveyor.Seed(defs.DrillPart, defs.DrillInput{OrderID: "order-1", PartCode: "DR-42"}),
-			gonveyor.Split(defs.AssemblePart, 3),
+			gonveyor.Fan(defs.AssemblePart, 3),
 		)
 	},
-	"metal_pipeline": func() (store.BlueprintManifest, error) {
+	"metal_pipeline": func() (ledger.BlueprintManifest, error) {
 		return defs.MetalPipeline.Manifest(gonveyor.Seed(defs.CutBlank, defs.CutBlankInput{OrderID: "order-2", MetalType: "steel"}))
 	},
-	"steel_frame_dag": func() (store.BlueprintManifest, error) {
+	"steel_frame_dag": func() (ledger.BlueprintManifest, error) {
 		return defs.SteelFrameDAG.Manifest(gonveyor.Seed(defs.CutSteel, defs.CutSteelInput{OrderID: "order-3", SheetSize: "1200x800"}))
 	},
 }
@@ -68,11 +68,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		if err := gc.Submit(ctx, manifest); err != nil {
-			log.Fatal(err)
-		}
-
-		if err := gc.Dispatch(ctx, manifest.PendingTasks()); err != nil {
+		if err := gc.Launch(ctx, manifest); err != nil {
 			log.Fatal(err)
 		}
 
@@ -85,6 +81,5 @@ func keys[K comparable, V any](m map[K]V) []K {
 	for k := range m {
 		ks = append(ks, k)
 	}
-
 	return ks
 }

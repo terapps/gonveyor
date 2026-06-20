@@ -8,26 +8,29 @@ import (
 	"time"
 
 	"github.com/terapps/gonveyor/blueprint"
-	"github.com/terapps/gonveyor/store"
+	"github.com/terapps/gonveyor/ledger"
 	"github.com/terapps/gonveyor/transport"
 )
 
+// TaskHandler is the user-facing handler type: business logic only, no transport concerns.
+type TaskHandler func(ctx context.Context, task ledger.Task) (any, error)
+
 // Gonveyor orchestrates task execution across a distributed worker pool.
 type Gonveyor struct {
-	store      store.Store
+	ledger     ledger.Ledger
 	dispatcher transport.Dispatcher
 	worker     transport.Worker
-	handlers   map[string]transport.HandlerFunc
+	handlers   map[string]TaskHandler
 	blueprints map[string]*blueprint.Blueprint
 }
 
-// NewGonveyor creates a new Gonveyor with the given store, dispatcher and worker.
-func NewGonveyor(store store.Store, dispatcher transport.Dispatcher, worker transport.Worker) *Gonveyor {
+// NewGonveyor creates a new Gonveyor with the given ledger, dispatcher and worker.
+func NewGonveyor(l ledger.Ledger, dispatcher transport.Dispatcher, worker transport.Worker) *Gonveyor {
 	return &Gonveyor{
-		store:      store,
+		ledger:     l,
 		dispatcher: dispatcher,
 		worker:     worker,
-		handlers:   make(map[string]transport.HandlerFunc),
+		handlers:   make(map[string]TaskHandler),
 		blueprints: make(map[string]*blueprint.Blueprint),
 	}
 }
@@ -39,7 +42,7 @@ func (o *Gonveyor) RegisterBlueprint(bp *blueprint.Blueprint) {
 }
 
 // RegisterHandler registers a handler for a task key.
-func (o *Gonveyor) RegisterHandler(def blueprint.AnyDef, fn transport.HandlerFunc) {
+func (o *Gonveyor) RegisterHandler(def blueprint.AnyDef, fn TaskHandler) {
 	o.handlers[def.Key()] = fn
 }
 
@@ -48,13 +51,12 @@ func (o *Gonveyor) Listen(ctx context.Context) error {
 	if err := o.worker.Listen(ctx, o.handler()); !errors.Is(err, context.Canceled) {
 		return err
 	}
-
 	return nil
 }
 
-// OnComplete marks a task as successful and dispatches any newly unblocked tasks.
+// OnComplete marks a task as successful and publishes any newly unblocked tasks.
 func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) error {
-	ok, err := o.store.SetSuccess(ctx, taskID, result)
+	ok, tasks, err := o.ledger.SetSuccess(ctx, taskID, result)
 	if err != nil {
 		return err
 	}
@@ -62,38 +64,22 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 		return nil
 	}
 
-	tasks, err := o.store.Next(ctx, taskID)
-	if err != nil {
-		return err
-	}
-
 	for _, t := range tasks {
-		dispatched, err := o.store.SetDispatched(ctx, t.ID)
-		if err != nil {
-			return err
-		}
-
-		if !dispatched {
-			continue
-		}
-
 		if bp, ok := o.blueprints[t.BlueprintName]; ok {
 			if node := bp.Node(t.Key); node != nil {
 				var outputs map[string][]json.RawMessage
 				if node.NeedsDepData() {
-					outputs, err = o.store.GatherDepResults(ctx, t.ID)
+					outputs, err = o.ledger.GatherDepResults(ctx, t.ID)
 					if err != nil {
 						return err
 					}
 				}
-
 				t.Payload, err = node.BuildInput(t.Payload, outputs)
 				if err != nil {
 					return err
 				}
 			}
 		}
-
 		if err := o.dispatcher.Publish(ctx, t); err != nil {
 			return err
 		}
@@ -103,20 +89,23 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 }
 
 func (o *Gonveyor) handler() transport.HandlerFunc {
-	return func(ctx context.Context, task store.Task) (any, error) {
+	return func(ctx context.Context, task ledger.Task, ack func()) (any, error) {
 		fn, ok := o.handlers[task.Key]
 		if !ok {
 			return nil, fmt.Errorf("no handler registered for task key %q", task.Key)
 		}
 
-		ok, err := o.store.SetRunning(ctx, task.ID)
+		ok, err := o.ledger.SetRunning(ctx, task.ID)
 		if err != nil {
 			return nil, err
 		}
-
 		if !ok {
+			ack()
 			return nil, nil
 		}
+
+		// Task claimed — ACK before exec so a crash during handler is recovered
+		ack()
 
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -125,14 +114,14 @@ func (o *Gonveyor) handler() transport.HandlerFunc {
 
 		result, err := fn(ctx, task)
 		if err != nil {
-			if ferr := o.store.SetFailed(ctx, task.ID, err); ferr != nil {
+			if ferr := o.ledger.SetFailed(ctx, task.ID, err); ferr != nil {
 				Logger.Error("SetFailed failed", "task", task.ID, "err", ferr)
 			}
 			return nil, err
 		}
 
 		if err := o.OnComplete(ctx, task.ID, result); err != nil {
-			return nil, err
+			Logger.Error("OnComplete failed", "task", task.ID, "err", err)
 		}
 
 		return result, nil
@@ -146,7 +135,7 @@ func (o *Gonveyor) heartbeat(ctx context.Context, taskID string) {
 	for {
 		select {
 		case <-ticker.C:
-			_ = o.store.RenewLock(ctx, taskID)
+			_ = o.ledger.RenewLock(ctx, taskID)
 		case <-ctx.Done():
 			return
 		}

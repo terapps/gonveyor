@@ -8,7 +8,7 @@ import (
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/terapps/gonveyor"
-	"github.com/terapps/gonveyor/store"
+	"github.com/terapps/gonveyor/ledger"
 	"github.com/terapps/gonveyor/transport"
 )
 
@@ -70,7 +70,6 @@ func (w *Worker) Listen(ctx context.Context, handler transport.HandlerFunc) erro
 			if err := w.recover(ctx); err != nil {
 				return err
 			}
-
 			continue
 		}
 
@@ -109,7 +108,6 @@ func (w *Worker) openChannel() error {
 	}
 
 	w.ch = ch
-
 	return nil
 }
 
@@ -181,7 +179,6 @@ func (w *Worker) recover(ctx context.Context) error {
 		}
 
 		gonveyor.Logger.Info("reconnected to broker")
-
 		return nil
 	}
 }
@@ -207,41 +204,45 @@ func (w *Worker) consume(ctx context.Context, msgs <-chan amqp091.Delivery, hand
 func (w *Worker) handle(ctx context.Context, d amqp091.Delivery, handler transport.HandlerFunc) {
 	if ctx.Err() != nil {
 		_ = d.Nack(false, true)
-
 		return
 	}
 
-	var task store.Task
+	var task ledger.Task
 	if err := json.Unmarshal(d.Body, &task); err != nil {
 		gonveyor.Logger.Error("failed to unmarshal task", "err", err)
-
 		_ = d.Nack(false, false)
-
 		return
 	}
 
-	if err := w.call(ctx, task, handler); err != nil {
-		gonveyor.Logger.Error("handler failed", "key", task.Key, "err", err)
+	// ack is called by the handler after claiming the task (post-SetRunning).
+	// Once called, we never NACK — crashes after this point are handled by the reaper.
+	var acked bool
+	ack := sync.OnceFunc(func() {
+		acked = true
+		_ = d.Ack(false)
+	})
 
-		_ = d.Nack(false, w.requeueFn(err))
-
+	if err := w.call(ctx, task, handler, ack); err != nil {
+		if !acked {
+			gonveyor.Logger.Error("handler failed before claim", "key", task.Key, "err", err)
+			_ = d.Nack(false, w.requeueFn(err))
+		}
 		return
 	}
-
-	_ = d.Ack(false)
+	if !acked {
+		_ = d.Ack(false)
+	}
 }
 
 // call invokes the handler with a non-cancellable context so that shutdown signals
-// do not interrupt a task mid-execution. Handlers must not rely on ctx.Done() for
-// graceful shutdown — the worker waits for the handler to return naturally.
-func (w *Worker) call(ctx context.Context, task store.Task, handler transport.HandlerFunc) (err error) {
+// do not interrupt a task mid-execution.
+func (w *Worker) call(ctx context.Context, task ledger.Task, handler transport.HandlerFunc, ack func()) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
 		}
 	}()
 
-	_, err = handler(context.WithoutCancel(ctx), task)
-
+	_, err = handler(context.WithoutCancel(ctx), task, ack)
 	return
 }

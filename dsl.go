@@ -6,18 +6,16 @@ import (
 	"fmt"
 
 	"github.com/terapps/gonveyor/blueprint"
-	"github.com/terapps/gonveyor/store"
-	"github.com/terapps/gonveyor/transport"
+	"github.com/terapps/gonveyor/ledger"
 )
 
 // Handle wraps a typed handler function into a HandlerFunc.
-func Handle[I, O any](_ *blueprint.Station[I, O], fn func(context.Context, I) (O, error)) transport.HandlerFunc {
-	return func(ctx context.Context, task store.Task) (any, error) {
+func Handle[I, O any](_ *blueprint.Station[I, O], fn func(context.Context, I) (O, error)) TaskHandler {
+	return func(ctx context.Context, task ledger.Task) (any, error) {
 		var input I
 		if err := json.Unmarshal(task.Payload, &input); err != nil {
 			return nil, fmt.Errorf("unmarshal input: %w", err)
 		}
-
 		return fn(ctx, input)
 	}
 }
@@ -39,24 +37,21 @@ func After[I any](from blueprint.AnyDef) blueprint.DepOption[I] {
 }
 
 // Wire creates a wired node — a Station with its blueprint-specific dependency declarations.
-// Use inside Blueprint.New to declare how this task's input is built from upstream outputs.
 func Wire[I, O any](def *blueprint.Station[I, O], deps ...blueprint.DepOption[I]) blueprint.AnyWiredNode {
 	return blueprint.Wire(def, deps...)
 }
 
 // Seed sets the base payload for a task at manifest time.
-// Fields set by Seed are overlaid by Intake/Merge deps at dispatch time,
-// so Seed and dep-based injection can coexist on the same task.
 func Seed[I, O any](def *blueprint.Station[I, O], input I) blueprint.ManifestOption {
 	return blueprint.Seed(def, input)
 }
 
-// Split creates n parallel instances of def in the manifest.
-func Split(def blueprint.AnyDef, n int) blueprint.ManifestOption {
-	return blueprint.Split(def, n)
+// Fan creates n parallel instances of def in the manifest.
+func Fan(def blueprint.AnyDef, n int) blueprint.ManifestOption {
+	return blueprint.Fan(def, n)
 }
 
-// SplitWith creates N parallel instances of def, each seeded with a per-item payload.
-func SplitWith[I, O any, T any](def *blueprint.Station[I, O], items []T, fn func(T, *I)) blueprint.ManifestOption {
-	return blueprint.SplitWith(def, items, fn)
+// Seeds creates N parallel instances of def, each seeded with a per-item payload.
+func Seeds[I, O any, T any](def *blueprint.Station[I, O], items []T, fn func(T, *I)) blueprint.ManifestOption {
+	return blueprint.Seeds(def, items, fn)
 }

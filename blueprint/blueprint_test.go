@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/terapps/gonveyor/blueprint"
-	"github.com/terapps/gonveyor/store"
+	"github.com/terapps/gonveyor/ledger"
 )
 
 // --- helpers ---
@@ -22,15 +22,15 @@ type in3 struct {
 }
 type out3 struct{}
 
-func mustManifest(t *testing.T, bp *blueprint.Blueprint, opts ...blueprint.ManifestOption) store.BlueprintManifest {
+func mustManifest(t *testing.T, bp *blueprint.Blueprint, opts ...blueprint.ManifestOption) ledger.BlueprintManifest {
 	t.Helper()
 	m, err := bp.Manifest(opts...)
 	require.NoError(t, err)
 	return m
 }
 
-func taskByKey(m store.BlueprintManifest, key string) []store.Task {
-	var out []store.Task
+func taskByKey(m ledger.BlueprintManifest, key string) []ledger.Task {
+	var out []ledger.Task
 	for _, t := range m.Tasks {
 		if t.Key == key {
 			out = append(out, t)
@@ -54,7 +54,7 @@ func TestNew_MissingDep(t *testing.T) {
 	assert.Panics(t, func() {
 		blueprint.New("bp", blueprint.Wire(b,
 			blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
-		)) // a manquant
+		))
 	})
 }
 
@@ -85,7 +85,7 @@ func TestNew_Diamond(t *testing.T) {
 	})
 }
 
-// --- Manifest / PendingTasks ---
+// --- Manifest / RootTasks ---
 
 func TestManifest_RootIsInitial(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
@@ -95,9 +95,9 @@ func TestManifest_RootIsInitial(t *testing.T) {
 	))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{A: "hello"}))
 
-	pending := m.PendingTasks()
-	require.Len(t, pending, 1)
-	assert.Equal(t, "a", pending[0].Key)
+	roots := m.RootTasks()
+	require.Len(t, roots, 1)
+	assert.Equal(t, "a", roots[0].Key)
 }
 
 func TestManifest_DepTaskNotInitial(t *testing.T) {
@@ -108,12 +108,12 @@ func TestManifest_DepTaskNotInitial(t *testing.T) {
 	))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
-	ids := make(map[string]struct{})
-	for _, t := range m.PendingTasks() {
-		ids[t.ID] = struct{}{}
+	rootIDs := make(map[string]struct{})
+	for _, t := range m.RootTasks() {
+		rootIDs[t.ID] = struct{}{}
 	}
 	for _, task := range taskByKey(m, "b") {
-		assert.NotContains(t, ids, task.ID)
+		assert.NotContains(t, rootIDs, task.ID)
 	}
 }
 
@@ -140,18 +140,18 @@ func TestManifest_BlueprintName(t *testing.T) {
 	}
 }
 
-func TestManifest_Split_CreatesNInstances(t *testing.T) {
+func TestManifest_Fan_CreatesNInstances(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
 	b := blueprint.Define[in2, out2]("b")
 	bp := blueprint.New("bp", a, blueprint.Wire(b,
 		blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A }),
 	))
-	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Split(b, 3))
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Fan(b, 3))
 
 	assert.Len(t, taskByKey(m, "b"), 3)
 }
 
-func TestManifest_Split_DownstreamWaitsAll(t *testing.T) {
+func TestManifest_Fan_DownstreamWaitsAll(t *testing.T) {
 	a := blueprint.Define[in1, out1]("a")
 	b := blueprint.Define[in2, out2]("b")
 	c := blueprint.Define[in3, out3]("c")
@@ -159,7 +159,7 @@ func TestManifest_Split_DownstreamWaitsAll(t *testing.T) {
 		blueprint.Wire(b, blueprint.Intake(a, func(o out1, in *in2) { in.A = o.A })),
 		blueprint.Wire(c, blueprint.Merge(b, func(outs []out2, in *in3) {})),
 	)
-	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Split(b, 3))
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Fan(b, 3))
 
 	cTasks := taskByKey(m, "c")
 	require.Len(t, cTasks, 1)
@@ -307,16 +307,16 @@ func TestBuildInput_Merge_EmptyOutputs(t *testing.T) {
 	assert.Empty(t, got.Values)
 }
 
-// --- SplitWith ---
+// --- Seeds ---
 
-func TestSplitWith_CreatesNInstances(t *testing.T) {
+func TestSeeds_CreatesNInstances(t *testing.T) {
 	type item struct{ ID string }
 	a := blueprint.Define[in1, out1]("a")
 	b := blueprint.Define[in2, out2]("b")
 	bp := blueprint.New("bp", a, b)
 
 	items := []item{{"x"}, {"y"}, {"z"}}
-	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.SplitWith(b, items, func(it item, in *in2) {
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Seeds(b, items, func(it item, in *in2) {
 		in.A = it.ID
 	}))
 
@@ -324,14 +324,14 @@ func TestSplitWith_CreatesNInstances(t *testing.T) {
 	assert.Len(t, bTasks, 3)
 }
 
-func TestSplitWith_PerInstancePayload(t *testing.T) {
+func TestSeeds_PerInstancePayload(t *testing.T) {
 	type item struct{ ID string }
 	a := blueprint.Define[in1, out1]("a")
 	b := blueprint.Define[in2, out2]("b")
 	bp := blueprint.New("bp", a, b)
 
 	items := []item{{"x"}, {"y"}, {"z"}}
-	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.SplitWith(b, items, func(it item, in *in2) {
+	m := mustManifest(t, bp, blueprint.Seed(a, in1{}), blueprint.Seeds(b, items, func(it item, in *in2) {
 		in.A = it.ID
 	}))
 
@@ -394,9 +394,9 @@ func TestAfter_NotInitialTask(t *testing.T) {
 	bp := blueprint.New("bp", a, blueprint.Wire(b, blueprint.After[in2](a)))
 	m := mustManifest(t, bp, blueprint.Seed(a, in1{}))
 
-	pending := m.PendingTasks()
-	require.Len(t, pending, 1)
-	assert.Equal(t, "a", pending[0].Key)
+	roots := m.RootTasks()
+	require.Len(t, roots, 1)
+	assert.Equal(t, "a", roots[0].Key)
 }
 
 func TestAfter_NeedsDepData_False(t *testing.T) {

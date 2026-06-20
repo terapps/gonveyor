@@ -9,7 +9,7 @@ import (
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/terapps/gonveyor"
-	"github.com/terapps/gonveyor/store"
+	"github.com/terapps/gonveyor/ledger"
 	"github.com/terapps/gonveyor/transport"
 )
 
@@ -26,7 +26,7 @@ type Dispatcher struct {
 }
 
 // Publish serializes a task and publishes it to the queue.
-func (d *Dispatcher) Publish(ctx context.Context, task store.Task) error {
+func (d *Dispatcher) Publish(ctx context.Context, task ledger.Task) error {
 	body, err := json.Marshal(task)
 	if err != nil {
 		return err
@@ -55,7 +55,6 @@ func (d *Dispatcher) Publish(ctx context.Context, task store.Task) error {
 func (d *Dispatcher) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
 	return d.ch.Close()
 }
 

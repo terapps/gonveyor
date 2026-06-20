@@ -4,15 +4,17 @@ package transport
 import (
 	"context"
 
-	"github.com/terapps/gonveyor/store"
+	"github.com/terapps/gonveyor/ledger"
 )
 
 // HandlerFunc processes a task and returns its result.
-type HandlerFunc func(ctx context.Context, task store.Task) (any, error)
+// ack must be called once the task has been claimed (after SetRunning) to ACK
+// the broker message before handler execution begins.
+type HandlerFunc func(ctx context.Context, task ledger.Task, ack func()) (any, error)
 
 // Dispatcher publishes tasks to the message queue.
 type Dispatcher interface {
-	Publish(ctx context.Context, task store.Task) error
+	Publish(ctx context.Context, task ledger.Task) error
 	Close() error
 }
 
