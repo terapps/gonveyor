@@ -2,7 +2,7 @@ CREATE TABLE blueprints (
     id            UUID        PRIMARY KEY,
     name          TEXT        NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE blueprint_nodes (
