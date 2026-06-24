@@ -207,7 +207,7 @@ func (w *Worker) handle(ctx context.Context, d amqp091.Delivery, handler transpo
 		return
 	}
 
-	var task ledger.Node
+	var task ledger.Unit
 	if err := json.Unmarshal(d.Body, &task); err != nil {
 		gonveyor.Logger.Error("failed to unmarshal task", "err", err)
 		_ = d.Nack(false, false)
@@ -236,7 +236,7 @@ func (w *Worker) handle(ctx context.Context, d amqp091.Delivery, handler transpo
 
 // call invokes the handler with a non-cancellable context so that shutdown signals
 // do not interrupt a task mid-execution.
-func (w *Worker) call(ctx context.Context, task ledger.Node, handler transport.HandlerFunc, ack func()) (err error) {
+func (w *Worker) call(ctx context.Context, task ledger.Unit, handler transport.HandlerFunc, ack func()) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)

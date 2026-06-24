@@ -17,35 +17,38 @@ import (
 // --- mocks ---
 
 type mockLedger struct {
-	claim            func(ctx context.Context, taskID string) (func() error, bool, error)
-	recordCompleted  func(ctx context.Context, taskID string, result any) (bool, []ledger.Node, error)
+	claim            func(ctx context.Context, taskID string, payload json.RawMessage) (func() error, bool, error)
+	recordCompleted  func(ctx context.Context, taskID string, result any) (bool, []ledger.Unit, error)
 	recordFailed     func(ctx context.Context, taskID string, err error) error
 	gatherDepResults func(ctx context.Context, taskID string) (map[string][]json.RawMessage, error)
-	sendSignal       func(ctx context.Context, blueprintID, signalKey string, payload any) ([]ledger.Node, error)
+	sendSignal       func(ctx context.Context, blueprintID, signalKey string, payload any) ([]ledger.Unit, error)
 }
 
-func (m *mockLedger) Claim(ctx context.Context, taskID string) (func() error, bool, error) {
+func (m *mockLedger) Claim(ctx context.Context, taskID string, payload json.RawMessage) (func() error, bool, error) {
 	if m.claim != nil {
-		return m.claim(ctx, taskID)
+		return m.claim(ctx, taskID, payload)
 	}
 	return func() error { return nil }, true, nil
 }
-func (m *mockLedger) RecordCompleted(ctx context.Context, taskID string, result any) (bool, []ledger.Node, error) {
+func (m *mockLedger) RecordCompleted(ctx context.Context, taskID string, result any) (bool, []ledger.Unit, error) {
 	return m.recordCompleted(ctx, taskID, result)
 }
 func (m *mockLedger) RecordFailed(ctx context.Context, taskID string, err error) error {
 	return m.recordFailed(ctx, taskID, err)
 }
 func (m *mockLedger) GatherDepResults(ctx context.Context, taskID string) (map[string][]json.RawMessage, error) {
-	return m.gatherDepResults(ctx, taskID)
-}
-func (m *mockLedger) CreateBlueprint(_ context.Context, _ ledger.BlueprintManifest) ([]ledger.Node, error) {
+	if m.gatherDepResults != nil {
+		return m.gatherDepResults(ctx, taskID)
+	}
 	return nil, nil
 }
-func (m *mockLedger) GetNode(_ context.Context, _ string) (ledger.Node, error) {
-	return ledger.Node{}, nil
+func (m *mockLedger) CreateBlueprint(_ context.Context, _ ledger.BlueprintManifest) ([]ledger.Unit, error) {
+	return nil, nil
 }
-func (m *mockLedger) SendSignal(ctx context.Context, blueprintID, signalKey string, payload any) ([]ledger.Node, error) {
+func (m *mockLedger) GetUnit(_ context.Context, _ string) (ledger.Unit, error) {
+	return ledger.Unit{}, nil
+}
+func (m *mockLedger) SendSignal(ctx context.Context, blueprintID, signalKey string, payload any) ([]ledger.Unit, error) {
 	if m.sendSignal != nil {
 		return m.sendSignal(ctx, blueprintID, signalKey, payload)
 	}
@@ -53,10 +56,10 @@ func (m *mockLedger) SendSignal(ctx context.Context, blueprintID, signalKey stri
 }
 
 type mockDispatcher struct {
-	publish func(ctx context.Context, task ledger.Node) error
+	publish func(ctx context.Context, task ledger.Unit) error
 }
 
-func (m *mockDispatcher) Publish(ctx context.Context, task ledger.Node) error {
+func (m *mockDispatcher) Publish(ctx context.Context, task ledger.Unit) error {
 	if m.publish != nil {
 		return m.publish(ctx, task)
 	}
@@ -82,7 +85,7 @@ func newG(l ledger.Ledger, d transport.Dispatcher) *Gonveyor {
 
 func emptyPayload() []byte { b, _ := json.Marshal(inA{}); return b }
 
-func invokeHandler(g *Gonveyor, task ledger.Node) error {
+func invokeHandler(g *Gonveyor, task ledger.Unit) error {
 	_, err := g.handler()(context.Background(), task, func() {})
 	return err
 }
@@ -92,7 +95,7 @@ func invokeHandler(g *Gonveyor, task ledger.Node) error {
 func TestHandler_Claim_False_Bails(t *testing.T) {
 	handlerCalled := false
 	l := &mockLedger{
-		claim: func(_ context.Context, _ string) (func() error, bool, error) {
+		claim: func(_ context.Context, _ string, _ json.RawMessage) (func() error, bool, error) {
 			return nil, false, nil
 		},
 	}
@@ -102,7 +105,7 @@ func TestHandler_Claim_False_Bails(t *testing.T) {
 		return outA{}, nil
 	}))
 
-	err := invokeHandler(g, ledger.Node{Key: "a", ID: "t1", Payload: emptyPayload()})
+	err := invokeHandler(g, ledger.Unit{Key: "a", ID: "t1", Payload: emptyPayload()})
 	assert.NoError(t, err)
 	assert.False(t, handlerCalled)
 }
@@ -110,7 +113,7 @@ func TestHandler_Claim_False_Bails(t *testing.T) {
 func TestHandler_NoHandler_ReturnsError(t *testing.T) {
 	g := newG(&mockLedger{}, &mockDispatcher{})
 
-	err := invokeHandler(g, ledger.Node{Key: "unknown", ID: "t1"})
+	err := invokeHandler(g, ledger.Unit{Key: "unknown", ID: "t1"})
 	assert.ErrorContains(t, err, "no handler registered")
 }
 
@@ -131,7 +134,7 @@ func TestHandler_HandlerError_CallsRecordFailed(t *testing.T) {
 		return outA{}, handlerErr
 	}))
 
-	err := invokeHandler(g, ledger.Node{Key: "a", ID: "t1", Payload: emptyPayload()})
+	err := invokeHandler(g, ledger.Unit{Key: "a", ID: "t1", Payload: emptyPayload()})
 	assert.ErrorIs(t, err, handlerErr)
 	assert.Equal(t, "t1", failedID)
 	assert.ErrorIs(t, failedErr, handlerErr)
@@ -148,24 +151,21 @@ func TestHandler_RecordFailed_Fails_OriginalErrStillReturned(t *testing.T) {
 		return outA{}, handlerErr
 	}))
 
-	err := invokeHandler(g, ledger.Node{Key: "a", ID: "t1", Payload: emptyPayload()})
+	err := invokeHandler(g, ledger.Unit{Key: "a", ID: "t1", Payload: emptyPayload()})
 	assert.ErrorIs(t, err, handlerErr)
 }
 
 func TestHandler_Success_PublishesNextTask(t *testing.T) {
-	nextTask := ledger.Node{Key: "b", ID: "t2"}
-	var published []ledger.Node
+	nextTask := ledger.Unit{Key: "b", ID: "t2"}
+	var published []ledger.Unit
 
 	l := &mockLedger{
-		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Node, error) {
-			return true, []ledger.Node{nextTask}, nil
-		},
-		gatherDepResults: func(_ context.Context, _ string) (map[string][]json.RawMessage, error) {
-			return nil, nil
+		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Unit, error) {
+			return true, []ledger.Unit{nextTask}, nil
 		},
 	}
 	d := &mockDispatcher{
-		publish: func(_ context.Context, task ledger.Node) error {
+		publish: func(_ context.Context, task ledger.Unit) error {
 			published = append(published, task)
 			return nil
 		},
@@ -175,7 +175,7 @@ func TestHandler_Success_PublishesNextTask(t *testing.T) {
 		return outA{}, nil
 	}))
 
-	err := invokeHandler(g, ledger.Node{Key: "a", ID: "t1", Payload: emptyPayload()})
+	err := invokeHandler(g, ledger.Unit{Key: "a", ID: "t1", Payload: emptyPayload()})
 	require.NoError(t, err)
 	require.Len(t, published, 1)
 	assert.Equal(t, "t2", published[0].ID)
@@ -186,12 +186,12 @@ func TestHandler_Success_PublishesNextTask(t *testing.T) {
 func TestOnComplete_RecordCompleted_False_Bails(t *testing.T) {
 	published := false
 	l := &mockLedger{
-		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Node, error) {
+		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Unit, error) {
 			return false, nil, nil
 		},
 	}
 	d := &mockDispatcher{
-		publish: func(_ context.Context, _ ledger.Node) error {
+		publish: func(_ context.Context, _ ledger.Unit) error {
 			published = true
 			return nil
 		},
@@ -204,14 +204,14 @@ func TestOnComplete_RecordCompleted_False_Bails(t *testing.T) {
 }
 
 func TestOnComplete_NoUnblockedTasks_NothingPublished(t *testing.T) {
-	var published []ledger.Node
+	var published []ledger.Unit
 	l := &mockLedger{
-		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Node, error) {
+		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Unit, error) {
 			return true, nil, nil
 		},
 	}
 	d := &mockDispatcher{
-		publish: func(_ context.Context, task ledger.Node) error {
+		publish: func(_ context.Context, task ledger.Unit) error {
 			published = append(published, task)
 			return nil
 		},
@@ -224,19 +224,16 @@ func TestOnComplete_NoUnblockedTasks_NothingPublished(t *testing.T) {
 }
 
 func TestOnComplete_MultipleUnblockedTasks_AllPublished(t *testing.T) {
-	tasks := []ledger.Node{{Key: "b", ID: "t2"}, {Key: "c", ID: "t3"}}
-	var published []ledger.Node
+	tasks := []ledger.Unit{{Key: "b", ID: "t2"}, {Key: "c", ID: "t3"}}
+	var published []ledger.Unit
 
 	l := &mockLedger{
-		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Node, error) {
+		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Unit, error) {
 			return true, tasks, nil
-		},
-		gatherDepResults: func(_ context.Context, _ string) (map[string][]json.RawMessage, error) {
-			return nil, nil
 		},
 	}
 	d := &mockDispatcher{
-		publish: func(_ context.Context, task ledger.Node) error {
+		publish: func(_ context.Context, task ledger.Unit) error {
 			published = append(published, task)
 			return nil
 		},
@@ -251,7 +248,7 @@ func TestOnComplete_MultipleUnblockedTasks_AllPublished(t *testing.T) {
 func TestOnComplete_RecordCompleted_Error_Propagates(t *testing.T) {
 	dbErr := errors.New("db error")
 	l := &mockLedger{
-		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Node, error) {
+		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Unit, error) {
 			return false, nil, dbErr
 		},
 	}
@@ -269,17 +266,14 @@ func TestHandler_Race_OnlyOneWins(t *testing.T) {
 	claimCalls := 0
 
 	l := &mockLedger{
-		claim: func(_ context.Context, _ string) (func() error, bool, error) {
+		claim: func(_ context.Context, _ string, _ json.RawMessage) (func() error, bool, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			claimCalls++
 			return func() error { return nil }, claimCalls == 1, nil
 		},
-		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Node, error) {
+		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Unit, error) {
 			return true, nil, nil
-		},
-		gatherDepResults: func(_ context.Context, _ string) (map[string][]json.RawMessage, error) {
-			return nil, nil
 		},
 	}
 	g := newG(l, &mockDispatcher{})
@@ -290,7 +284,7 @@ func TestHandler_Race_OnlyOneWins(t *testing.T) {
 		return outA{}, nil
 	}))
 
-	task := ledger.Node{Key: "a", ID: "t1", Payload: emptyPayload()}
+	task := ledger.Unit{Key: "a", ID: "t1", Payload: emptyPayload()}
 	var wg sync.WaitGroup
 	for range 2 {
 		wg.Add(1)
@@ -304,14 +298,16 @@ func TestHandler_Race_OnlyOneWins(t *testing.T) {
 	assert.Equal(t, 1, handlerCalls)
 }
 
+// GatherDepResults is now called in handler() for the task being claimed.
+
 func TestHandler_After_DoesNotCallGatherDepResults(t *testing.T) {
 	stationB := blueprint.Define[inA, outA]("b")
 	bp := blueprint.New("test_after", stationA, blueprint.Wire(stationB, blueprint.After[inA](stationA)))
 
 	gatherCalled := false
 	l := &mockLedger{
-		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Node, error) {
-			return true, []ledger.Node{{Key: "b", ID: "t2", BlueprintName: "test_after", Payload: emptyPayload()}}, nil
+		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Unit, error) {
+			return true, nil, nil
 		},
 		gatherDepResults: func(_ context.Context, _ string) (map[string][]json.RawMessage, error) {
 			gatherCalled = true
@@ -320,14 +316,12 @@ func TestHandler_After_DoesNotCallGatherDepResults(t *testing.T) {
 	}
 	g := newG(l, &mockDispatcher{})
 	g.RegisterBlueprint(bp)
-	g.RegisterHandler(stationA, Handle(stationA, func(_ context.Context, _ inA) (outA, error) {
-		return outA{}, nil
-	}))
 	g.RegisterHandler(stationB, Handle(stationB, func(_ context.Context, _ inA) (outA, error) {
 		return outA{}, nil
 	}))
 
-	err := invokeHandler(g, ledger.Node{Key: "a", ID: "t1", BlueprintName: "test_after", Payload: emptyPayload()})
+	// Invoke handler for stationB directly — it has only After deps so NeedsDepData = false.
+	err := invokeHandler(g, ledger.Unit{Key: "b", ID: "t2", BlueprintName: "test_after", Payload: emptyPayload()})
 	require.NoError(t, err)
 	assert.False(t, gatherCalled, "GatherDepResults should not be called for After-only deps")
 }
@@ -343,8 +337,8 @@ func TestHandler_AfterAndIntake_CallsGatherDepResults(t *testing.T) {
 
 	gatherCalled := false
 	l := &mockLedger{
-		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Node, error) {
-			return true, []ledger.Node{{Key: "b", ID: "t2", BlueprintName: "test_after_intake", Payload: emptyPayload()}}, nil
+		recordCompleted: func(_ context.Context, _ string, _ any) (bool, []ledger.Unit, error) {
+			return true, nil, nil
 		},
 		gatherDepResults: func(_ context.Context, _ string) (map[string][]json.RawMessage, error) {
 			gatherCalled = true
@@ -354,32 +348,30 @@ func TestHandler_AfterAndIntake_CallsGatherDepResults(t *testing.T) {
 	}
 	g := newG(l, &mockDispatcher{})
 	g.RegisterBlueprint(bp)
-	g.RegisterHandler(stationA, Handle(stationA, func(_ context.Context, _ inA) (outA, error) {
-		return outA{}, nil
-	}))
 	g.RegisterHandler(stationB, Handle(stationB, func(_ context.Context, _ inA) (outA, error) {
 		return outA{}, nil
 	}))
 
-	err := invokeHandler(g, ledger.Node{Key: "a", ID: "t1", BlueprintName: "test_after_intake", Payload: emptyPayload()})
+	// Invoke handler for stationB directly — it has Intake dep so NeedsDepData = true.
+	err := invokeHandler(g, ledger.Unit{Key: "b", ID: "t2", BlueprintName: "test_after_intake", Payload: emptyPayload()})
 	require.NoError(t, err)
-	assert.True(t, gatherCalled, "GatherDepResults should be called when Intake is present alongside After")
+	assert.True(t, gatherCalled, "GatherDepResults should be called when Intake is present")
 }
 
 // --- Gonductor tests ---
 
 func TestGonductor_SendSignal_PublishesUnblockedNodes(t *testing.T) {
-	unblocked := []ledger.Node{{Key: "process", ID: "t2"}}
+	unblocked := []ledger.Unit{{Key: "process", ID: "t2"}}
 	var publishedKeys []string
 
 	l := &mockLedger{}
-	l.sendSignal = func(_ context.Context, blueprintID, signalKey string, payload any) ([]ledger.Node, error) {
+	l.sendSignal = func(_ context.Context, blueprintID, signalKey string, payload any) ([]ledger.Unit, error) {
 		assert.Equal(t, "bp-1", blueprintID)
 		assert.Equal(t, "await_approval", signalKey)
 		return unblocked, nil
 	}
 	d := &mockDispatcher{
-		publish: func(_ context.Context, n ledger.Node) error {
+		publish: func(_ context.Context, n ledger.Unit) error {
 			publishedKeys = append(publishedKeys, n.Key)
 			return nil
 		},
@@ -393,7 +385,7 @@ func TestGonductor_SendSignal_PublishesUnblockedNodes(t *testing.T) {
 
 func TestGonductor_SendSignal_LedgerError_Propagates(t *testing.T) {
 	l := &mockLedger{}
-	l.sendSignal = func(_ context.Context, _, _ string, _ any) ([]ledger.Node, error) {
+	l.sendSignal = func(_ context.Context, _, _ string, _ any) ([]ledger.Unit, error) {
 		return nil, errors.New("db error")
 	}
 	c := NewGonductor(l, &mockDispatcher{})

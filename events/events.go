@@ -1,4 +1,4 @@
-// Package events defines the event types emitted by gonveyor on node state transitions.
+// Package events defines the event types emitted by gonveyor on unit state transitions.
 package events
 
 import (
@@ -7,13 +7,24 @@ import (
 	"github.com/terapps/gonveyor/ledger"
 )
 
-// Event is emitted on every node state transition.
+type EventType string
+
+const (
+	EventUnitSeeded     EventType = "unit_seeded"
+	EventUnitDispatched EventType = "unit_dispatched"
+	EventUnitStarted    EventType = "unit_started"
+	EventUnitCompleted  EventType = "unit_completed"
+	EventUnitFailed     EventType = "unit_failed"
+	EventUnitRetried    EventType = "unit_retried"
+)
+
+// Event is emitted on every unit state transition.
 type Event struct {
-	Type ledger.EventType `json:"type"`
-	Node ledger.Node      `json:"node"`
+	Type EventType   `json:"type"`
+	Unit ledger.Unit `json:"unit"`
 }
 
-// Publisher receives events emitted on every node state transition.
+// Publisher receives events emitted on every unit state transition.
 // Implement this interface to forward events to a message broker, webhook, or any sink.
 // If not set, events are silently dropped.
 type Publisher interface {

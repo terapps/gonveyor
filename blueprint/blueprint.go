@@ -13,7 +13,7 @@ type AnyDef interface {
 }
 
 // AnyWiredStation is the type-erased interface for a Station with its dependency wiring.
-// It is a node definition (schema/template) — distinct from ledger.Node, which is a
+// It is a node definition (schema/template) — distinct from ledger.Unit, which is a
 // persisted runtime instance of that definition.
 type AnyWiredStation interface {
 	AnyDef

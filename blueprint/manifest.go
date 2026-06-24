@@ -45,7 +45,7 @@ func (b *Blueprint) Manifest(opts ...ManifestOption) (ledger.BlueprintManifest, 
 
 	for _, def := range b.tasks {
 		if def.NodeType() == "signal" {
-			continue // signal nodes receive their payload via SendSignal, not Seed
+			continue // signal units receive their payload via SendSignal, not Seed
 		}
 		if len(def.depList()) == 0 && cfg.payloads[def.Key()] == nil {
 			return ledger.BlueprintManifest{}, fmt.Errorf("task %q has no dependencies and no Seed — use Seed() to provide its initial payload", def.Key())
@@ -66,8 +66,8 @@ func (b *Blueprint) Manifest(opts ...ManifestOption) (ledger.BlueprintManifest, 
 		taskIDs[def.Key()] = ids
 	}
 
-	tasks := make([]ledger.Node, 0)
-	deps := make([]ledger.NodeDependency, 0)
+	units := make([]ledger.Unit, 0)
+	deps := make([]ledger.UnitDependency, 0)
 
 	for _, def := range b.tasks {
 		myIDs := taskIDs[def.Key()]
@@ -78,12 +78,12 @@ func (b *Blueprint) Manifest(opts ...ManifestOption) (ledger.BlueprintManifest, 
 				taskPayload = perInstance[i]
 			}
 
-			tasks = append(tasks, ledger.Node{
+			units = append(units, ledger.Unit{
 				ID:            id,
 				BlueprintID:   blueprintID,
 				BlueprintName: b.name,
 				Key:           def.Key(),
-				NodeType:      def.NodeType(),
+				UnitType:      def.NodeType(),
 				Payload:       taskPayload,
 			})
 		}
@@ -93,16 +93,16 @@ func (b *Blueprint) Manifest(opts ...ManifestOption) (ledger.BlueprintManifest, 
 			switch {
 			case len(myIDs) == len(depIDs):
 				for i, myID := range myIDs {
-					deps = append(deps, ledger.NodeDependency{NodeID: myID, DependsOnID: depIDs[i]})
+					deps = append(deps, ledger.UnitDependency{UnitID: myID, DependsOnID: depIDs[i]})
 				}
 			case len(depIDs) == 1:
 				for _, myID := range myIDs {
-					deps = append(deps, ledger.NodeDependency{NodeID: myID, DependsOnID: depIDs[0]})
+					deps = append(deps, ledger.UnitDependency{UnitID: myID, DependsOnID: depIDs[0]})
 				}
 			default:
 				for _, myID := range myIDs {
 					for _, depID := range depIDs {
-						deps = append(deps, ledger.NodeDependency{NodeID: myID, DependsOnID: depID})
+						deps = append(deps, ledger.UnitDependency{UnitID: myID, DependsOnID: depID})
 					}
 				}
 			}
@@ -111,8 +111,8 @@ func (b *Blueprint) Manifest(opts ...ManifestOption) (ledger.BlueprintManifest, 
 
 	return ledger.BlueprintManifest{
 		Blueprint:        ledger.Blueprint{ID: blueprintID, Name: b.name},
-		Nodes:            tasks,
-		NodeDependencies: deps,
+		Units:            units,
+		UnitDependencies: deps,
 	}, nil
 }
 

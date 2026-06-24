@@ -14,7 +14,7 @@ import (
 )
 
 // TaskHandler is the user-facing handler type: business logic only, no transport concerns.
-type TaskHandler func(ctx context.Context, task ledger.Node) (any, error)
+type TaskHandler func(ctx context.Context, task ledger.Unit) (any, error)
 
 // Gonveyor orchestrates task execution across a distributed worker pool.
 type Gonveyor struct {
@@ -58,7 +58,8 @@ func (o *Gonveyor) Listen(ctx context.Context) error {
 	return nil
 }
 
-// OnComplete marks a node as successful and publishes any newly unblocked nodes.
+// OnComplete marks a unit as successful and publishes any newly unblocked units.
+// Payload computation is deferred to the worker at Claim time.
 func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) error {
 	ok, tasks, err := o.ledger.RecordCompleted(ctx, taskID, result)
 	if err != nil {
@@ -69,22 +70,6 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 	}
 
 	for _, t := range tasks {
-		if bp, ok := o.blueprints[t.BlueprintName]; ok {
-			if node := bp.Node(t.Key); node != nil {
-				var outputs map[string][]json.RawMessage
-				if node.NeedsDepData() {
-					outputs, err = o.ledger.GatherDepResults(ctx, t.ID)
-					if err != nil {
-						return err
-					}
-				}
-				t.Payload, err = node.BuildInput(t.Payload, outputs)
-				if err != nil {
-					return err
-				}
-			}
-		}
-
 		if err := o.dispatcher.Publish(ctx, t); err != nil {
 			return err
 		}
@@ -94,13 +79,33 @@ func (o *Gonveyor) OnComplete(ctx context.Context, taskID string, result any) er
 }
 
 func (o *Gonveyor) handler() transport.HandlerFunc {
-	return func(ctx context.Context, task ledger.Node, ack func()) (any, error) {
+	return func(ctx context.Context, task ledger.Unit, ack func()) (any, error) {
 		fn, ok := o.handlers[task.Key]
 		if !ok {
 			return nil, fmt.Errorf("no handler registered for task key %q", task.Key)
 		}
 
-		keepalive, ok, err := o.ledger.Claim(ctx, task.ID)
+		// Build final input payload before claiming so it is stored in unit_started.output.
+		// task.Payload carries the seed from AMQP; dep outputs are fetched here.
+		payload := task.Payload
+		if bp, ok := o.blueprints[task.BlueprintName]; ok {
+			if node := bp.Node(task.Key); node != nil {
+				var outputs map[string][]json.RawMessage
+				var err error
+				if node.NeedsDepData() {
+					outputs, err = o.ledger.GatherDepResults(ctx, task.ID)
+					if err != nil {
+						return nil, err
+					}
+				}
+				payload, err = node.BuildInput(task.Payload, outputs)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		keepalive, ok, err := o.ledger.Claim(ctx, task.ID, payload)
 		if err != nil {
 			return nil, err
 		}
@@ -108,6 +113,8 @@ func (o *Gonveyor) handler() transport.HandlerFunc {
 			ack()
 			return nil, nil
 		}
+
+		task.Payload = payload
 
 		// Task claimed — ACK before exec so a crash during handler is recovered
 		ack()
@@ -122,14 +129,14 @@ func (o *Gonveyor) handler() transport.HandlerFunc {
 			if ferr := o.ledger.RecordFailed(ctx, task.ID, err); ferr != nil {
 				Logger.Error("RecordFailed failed", "task", task.ID, "err", ferr)
 			}
-			o.publish(ctx, events.Event{Type: ledger.EventNodeFailed, Node: task})
+			o.publish(ctx, events.Event{Type: events.EventUnitFailed, Unit: task})
 			return nil, err
 		}
 
 		if err := o.OnComplete(ctx, task.ID, result); err != nil {
 			Logger.Error("OnComplete failed", "task", task.ID, "err", err)
 		}
-		o.publish(ctx, events.Event{Type: ledger.EventNodeCompleted, Node: task})
+		o.publish(ctx, events.Event{Type: events.EventUnitCompleted, Unit: task})
 
 		return result, nil
 	}
@@ -140,7 +147,7 @@ func (o *Gonveyor) publish(ctx context.Context, event events.Event) {
 		return
 	}
 	if err := o.eventPublisher.Publish(ctx, event); err != nil {
-		Logger.Error("event publish failed", "type", event.Type, "node", event.Node.ID, "err", err)
+		Logger.Error("event publish failed", "type", event.Type, "unit", event.Unit.ID, "err", err)
 	}
 }
 

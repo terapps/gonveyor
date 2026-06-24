@@ -11,7 +11,7 @@ import (
 
 // Handle wraps a typed handler function into a HandlerFunc.
 func Handle[I, O any](_ *blueprint.Station[I, O], fn func(context.Context, I) (O, error)) TaskHandler {
-	return func(ctx context.Context, task ledger.Node) (any, error) {
+	return func(ctx context.Context, task ledger.Unit) (any, error) {
 		var input I
 		if err := json.Unmarshal(task.Payload, &input); err != nil {
 			return nil, fmt.Errorf("unmarshal input: %w", err)

@@ -60,10 +60,10 @@ func seed(t *testing.T, manifest ledger.BlueprintManifest) {
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		ctx := context.Background()
-		_, _ = testDB.ExecContext(ctx, `DELETE FROM node_heartbeats WHERE node_id IN (SELECT id FROM blueprint_nodes WHERE blueprint_id = $1)`, manifest.Blueprint.ID)
-		_, _ = testDB.ExecContext(ctx, `DELETE FROM node_events WHERE blueprint_id = $1`, manifest.Blueprint.ID)
-		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprint_node_dependencies WHERE node_id IN (SELECT id FROM blueprint_nodes WHERE blueprint_id = $1)`, manifest.Blueprint.ID)
-		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprint_nodes WHERE blueprint_id = $1`, manifest.Blueprint.ID)
+		_, _ = testDB.ExecContext(ctx, `DELETE FROM unit_heartbeats WHERE unit_id IN (SELECT id FROM blueprint_units WHERE blueprint_id = $1)`, manifest.Blueprint.ID)
+		_, _ = testDB.ExecContext(ctx, `DELETE FROM unit_events WHERE blueprint_id = $1`, manifest.Blueprint.ID)
+		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprint_unit_dependencies WHERE unit_id IN (SELECT id FROM blueprint_units WHERE blueprint_id = $1)`, manifest.Blueprint.ID)
+		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprint_units WHERE blueprint_id = $1`, manifest.Blueprint.ID)
 		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprints WHERE id = $1`, manifest.Blueprint.ID)
 	})
 }
@@ -73,7 +73,7 @@ func simpleManifest() ledger.BlueprintManifest {
 	nodeID := uuid()
 	return ledger.BlueprintManifest{
 		Blueprint: ledger.Blueprint{ID: bpID, Name: "test"},
-		Nodes: []ledger.Node{
+		Units: []ledger.Unit{
 			{ID: nodeID, BlueprintID: bpID, Key: "a", Payload: json.RawMessage(`{}`)},
 		},
 	}
@@ -84,11 +84,11 @@ func chainManifest() (ledger.BlueprintManifest, string, string) {
 	n1ID, n2ID := uuid(), uuid()
 	m := ledger.BlueprintManifest{
 		Blueprint: ledger.Blueprint{ID: bpID, Name: "test"},
-		Nodes: []ledger.Node{
+		Units: []ledger.Unit{
 			{ID: n1ID, BlueprintID: bpID, Key: "a", Payload: json.RawMessage(`{}`)},
 			{ID: n2ID, BlueprintID: bpID, Key: "b", Payload: json.RawMessage(`{}`)},
 		},
-		NodeDependencies: []ledger.NodeDependency{{NodeID: n2ID, DependsOnID: n1ID}},
+		UnitDependencies: []ledger.UnitDependency{{UnitID: n2ID, DependsOnID: n1ID}},
 	}
 	return m, n1ID, n2ID
 }
@@ -97,9 +97,9 @@ func countEvents(t *testing.T, nodeID, eventType string) int {
 	t.Helper()
 	var n int
 	err := testDB.NewSelect().
-		TableExpr("node_events").
+		TableExpr("unit_events").
 		ColumnExpr("COUNT(*)").
-		Where("node_id = ?", nodeID).
+		Where("unit_id = ?", nodeID).
 		Where("type = ?", eventType).
 		Scan(context.Background(), &n)
 	require.NoError(t, err)
@@ -115,16 +115,16 @@ func TestCreateBlueprint_ReturnsRootNodes(t *testing.T) {
 
 	defer func() {
 		ctx := context.Background()
-		_, _ = testDB.ExecContext(ctx, `DELETE FROM node_events WHERE blueprint_id = $1`, m.Blueprint.ID)
-		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprint_node_dependencies WHERE node_id IN (SELECT id FROM blueprint_nodes WHERE blueprint_id = $1)`, m.Blueprint.ID)
-		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprint_nodes WHERE blueprint_id = $1`, m.Blueprint.ID)
+		_, _ = testDB.ExecContext(ctx, `DELETE FROM unit_events WHERE blueprint_id = $1`, m.Blueprint.ID)
+		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprint_unit_dependencies WHERE unit_id IN (SELECT id FROM blueprint_units WHERE blueprint_id = $1)`, m.Blueprint.ID)
+		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprint_units WHERE blueprint_id = $1`, m.Blueprint.ID)
 		_, _ = testDB.ExecContext(ctx, `DELETE FROM blueprints WHERE id = $1`, m.Blueprint.ID)
 	}()
 
 	require.Len(t, nodes, 1)
 	assert.Equal(t, n1ID, nodes[0].ID)
-	assert.Equal(t, 0, countEvents(t, n2ID, "node_dispatched"), "downstream node must not be dispatched yet")
-	assert.Equal(t, 1, countEvents(t, n1ID, "node_dispatched"), "root node must have a dispatch event")
+	assert.Equal(t, 0, countEvents(t, n2ID, "unit_dispatched"), "downstream node must not be dispatched yet")
+	assert.Equal(t, 1, countEvents(t, n1ID, "unit_dispatched"), "root node must have a dispatch event")
 }
 
 // --- Claim ---
@@ -133,10 +133,10 @@ func TestClaim_InsertsStartedEvent(t *testing.T) {
 	m := simpleManifest()
 	seed(t, m)
 
-	_, ok, err := newLedger().Claim(context.Background(), m.Nodes[0].ID)
+	_, ok, err := newLedger().Claim(context.Background(), m.Units[0].ID, nil)
 	require.NoError(t, err)
 	assert.True(t, ok)
-	assert.Equal(t, 1, countEvents(t, m.Nodes[0].ID, "node_started"))
+	assert.Equal(t, 1, countEvents(t, m.Units[0].ID, "unit_started"))
 }
 
 func TestClaim_Keepalive_InsertsHeartbeat(t *testing.T) {
@@ -144,16 +144,16 @@ func TestClaim_Keepalive_InsertsHeartbeat(t *testing.T) {
 	seed(t, m)
 	ctx := context.Background()
 
-	keepalive, ok, err := newLedger().Claim(ctx, m.Nodes[0].ID)
+	keepalive, ok, err := newLedger().Claim(ctx, m.Units[0].ID, nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NoError(t, keepalive())
 
 	var n int
 	err = testDB.NewSelect().
-		TableExpr("node_heartbeats").
+		TableExpr("unit_heartbeats").
 		ColumnExpr("COUNT(*)").
-		Where("node_id = ?", m.Nodes[0].ID).
+		Where("unit_id = ?", m.Units[0].ID).
 		Scan(ctx, &n)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
@@ -167,11 +167,11 @@ func TestRecordCompleted_ReturnsTrue_InsertsEvent(t *testing.T) {
 	l := newLedger()
 	ctx := context.Background()
 
-	ok, nodes, err := l.RecordCompleted(ctx, m.Nodes[0].ID, map[string]string{"k": "v"})
+	ok, nodes, err := l.RecordCompleted(ctx, m.Units[0].ID, map[string]string{"k": "v"})
 	require.NoError(t, err)
 	assert.True(t, ok)
 	assert.Empty(t, nodes)
-	assert.Equal(t, 1, countEvents(t, m.Nodes[0].ID, "node_completed"))
+	assert.Equal(t, 1, countEvents(t, m.Units[0].ID, "unit_completed"))
 }
 
 func TestRecordCompleted_Idempotent_ReturnsFalse(t *testing.T) {
@@ -180,8 +180,8 @@ func TestRecordCompleted_Idempotent_ReturnsFalse(t *testing.T) {
 	l := newLedger()
 	ctx := context.Background()
 
-	_, _, _ = l.RecordCompleted(ctx, m.Nodes[0].ID, nil)
-	ok, nodes, err := l.RecordCompleted(ctx, m.Nodes[0].ID, nil)
+	_, _, _ = l.RecordCompleted(ctx, m.Units[0].ID, nil)
+	ok, nodes, err := l.RecordCompleted(ctx, m.Units[0].ID, nil)
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Nil(t, nodes)
@@ -198,7 +198,7 @@ func TestRecordCompleted_UnblocksDownstream(t *testing.T) {
 	assert.True(t, ok)
 	require.Len(t, unblocked, 1)
 	assert.Equal(t, n2ID, unblocked[0].ID)
-	assert.Equal(t, 1, countEvents(t, n2ID, "node_dispatched"))
+	assert.Equal(t, 1, countEvents(t, n2ID, "unit_dispatched"))
 }
 
 func TestRecordCompleted_AlreadyUnblockedByOtherDep_NoDoubleDispatch(t *testing.T) {
@@ -207,14 +207,14 @@ func TestRecordCompleted_AlreadyUnblockedByOtherDep_NoDoubleDispatch(t *testing.
 	nAID, nBID, nCID := uuid(), uuid(), uuid()
 	m := ledger.BlueprintManifest{
 		Blueprint: ledger.Blueprint{ID: bpID, Name: "test"},
-		Nodes: []ledger.Node{
+		Units: []ledger.Unit{
 			{ID: nAID, BlueprintID: bpID, Key: "a", Payload: json.RawMessage(`{}`)},
 			{ID: nBID, BlueprintID: bpID, Key: "b", Payload: json.RawMessage(`{}`)},
 			{ID: nCID, BlueprintID: bpID, Key: "c", Payload: json.RawMessage(`{}`)},
 		},
-		NodeDependencies: []ledger.NodeDependency{
-			{NodeID: nCID, DependsOnID: nAID},
-			{NodeID: nCID, DependsOnID: nBID},
+		UnitDependencies: []ledger.UnitDependency{
+			{UnitID: nCID, DependsOnID: nAID},
+			{UnitID: nCID, DependsOnID: nBID},
 		},
 	}
 	seed(t, m)
@@ -233,7 +233,7 @@ func TestRecordCompleted_AlreadyUnblockedByOtherDep_NoDoubleDispatch(t *testing.
 	assert.True(t, ok)
 	require.Len(t, unblocked, 1)
 	assert.Equal(t, nCID, unblocked[0].ID)
-	assert.Equal(t, 1, countEvents(t, nCID, "node_dispatched"), "c must be dispatched exactly once")
+	assert.Equal(t, 1, countEvents(t, nCID, "unit_dispatched"), "c must be dispatched exactly once")
 }
 
 // --- RecordFailed ---
@@ -242,8 +242,8 @@ func TestRecordFailed_InsertsEvent(t *testing.T) {
 	m := simpleManifest()
 	seed(t, m)
 
-	require.NoError(t, newLedger().RecordFailed(context.Background(), m.Nodes[0].ID, fmt.Errorf("oops")))
-	assert.Equal(t, 1, countEvents(t, m.Nodes[0].ID, "node_failed"))
+	require.NoError(t, newLedger().RecordFailed(context.Background(), m.Units[0].ID, fmt.Errorf("oops")))
+	assert.Equal(t, 1, countEvents(t, m.Units[0].ID, "unit_failed"))
 }
 
 // --- GatherDepResults ---
@@ -267,14 +267,14 @@ func TestGatherDepResults_MultiOutput_Split(t *testing.T) {
 	n1aID, n1bID, n2ID := uuid(), uuid(), uuid()
 	m := ledger.BlueprintManifest{
 		Blueprint: ledger.Blueprint{ID: bpID, Name: "test"},
-		Nodes: []ledger.Node{
+		Units: []ledger.Unit{
 			{ID: n1aID, BlueprintID: bpID, Key: "a", Payload: json.RawMessage(`{}`)},
 			{ID: n1bID, BlueprintID: bpID, Key: "a", Payload: json.RawMessage(`{}`)},
 			{ID: n2ID, BlueprintID: bpID, Key: "b", Payload: json.RawMessage(`{}`)},
 		},
-		NodeDependencies: []ledger.NodeDependency{
-			{NodeID: n2ID, DependsOnID: n1aID},
-			{NodeID: n2ID, DependsOnID: n1bID},
+		UnitDependencies: []ledger.UnitDependency{
+			{UnitID: n2ID, DependsOnID: n1aID},
+			{UnitID: n2ID, DependsOnID: n1bID},
 		},
 	}
 	seed(t, m)
